@@ -1,9 +1,9 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import assert from 'assert';
-import { isString, sortBy } from 'lodash';
 import { logWarn } from './utils';
 import { Attribute } from './types';
+import { normalizedSrc, unquoted, quotedIfKeyword, sortedAttributes } from './fs-schema-helpers';
 
 export class FsSchema {
   public root: string;
@@ -113,37 +113,4 @@ export class FsSchema {
       ].join('\n')
     );
   }
-}
-
-function normalizedSrc(src: string) {
-  if (!isString(src)) {
-    return src;
-  }
-  return src.replace(/\r\n/g, '\n').replace(/\n\r/g, '\n').replace(/\r/g, '\n').replace(/\t/g, '  ');
-}
-
-function unquoted(value: string) {
-  if (value.startsWith('"')) {
-    return value.substring(1, value.length - 1);
-  }
-  return value;
-}
-
-const Keywords = ['count', 'end', 'from', 'limit', 'line', 'uuid'];
-
-function quotedIfKeyword(value: string) {
-  if (Keywords.includes(value.toLowerCase())) {
-    return `"${value}"`;
-  }
-  return value;
-}
-
-function sortedAttributes(attributes: Attribute[]) {
-  const head = ['id', 'created_at', 'updated_at', 'deleted_at'];
-  return sortBy(attributes, (attribute) => {
-    if (head.includes(attribute.name)) {
-      return [head.indexOf(attribute.name)];
-    }
-    return [head.length, attribute.references ? 0 : 1, attribute.name];
-  });
 }

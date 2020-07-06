@@ -17,7 +17,8 @@
     "db-schema-dump": "./dist/bin.js"
   },
   "files": [
-    "/dist"
+    "/dist",
+    "!/dist/__tests__"
   ],
   "scripts": {
     "start": "npm run build && node ./dist/bin.js",
@@ -25,7 +26,7 @@
     "test": "npm run build && npm run eslint && npm run jest",
     "build": "rimraf ./dist && tsc",
     "eslint": "eslint --ext=ts,tsx ./src",
-    "jest": ""
+    "jest": "jest"
   },
   "husky": {
     "hooks": {
@@ -58,6 +59,7 @@
   },
   "devDependencies": {
     "@types/fs-extra": "^9.0.1",
+    "@types/jest": "^26.0.3",
     "@types/lodash": "^4.14.157",
     "@types/node": "^14.0.14",
     "@types/yargs": "^15.0.5",
@@ -66,9 +68,11 @@
     "eslint": "^7.4.0",
     "eslint-config-pureprofile": "^3.3.5",
     "husky": "^4.2.5",
+    "jest": "^26.1.0",
     "lint-staged": "^10.2.11",
     "prettier": "^2.0.5",
     "rimraf": "^3.0.2",
+    "ts-jest": "^26.1.1",
     "typescript": "^3.9.6"
   }
 }
