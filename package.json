@@ -16,10 +16,14 @@
   "bin": {
     "db-schema-dump": "./dist/bin.js"
   },
+  "files": [
+    "/dist"
+  ],
   "scripts": {
     "start": "npm run build && node ./dist/bin.js",
+    "prepublish": "npm test",
     "test": "npm run build && npm run eslint && npm run jest",
-    "build": "tsc",
+    "build": "rimraf ./dist && tsc",
     "eslint": "eslint --ext=ts,tsx ./src",
     "jest": ""
   },
@@ -64,6 +68,7 @@
     "husky": "^4.2.5",
     "lint-staged": "^10.2.11",
     "prettier": "^2.0.5",
+    "rimraf": "^3.0.2",
     "typescript": "^3.9.6"
   }
 }
