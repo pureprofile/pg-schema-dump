@@ -1,0 +1,69 @@
+{
+  "name": "@pureprofile/db-schema-dump",
+  "version": "0.0.1",
+  "description": "",
+  "author": "",
+  "license": "MIT",
+  "homepage": "https://github.com/pureprofile/db-schema-dump#readme",
+  "bugs": {
+    "url": "https://github.com/pureprofile/db-schema-dump/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pureprofile/db-schema-dump.git"
+  },
+  "main": "./dist/index.js",
+  "bin": {
+    "db-schema-dump": "./dist/bin.js"
+  },
+  "scripts": {
+    "start": "npm run build && node ./dist/bin.js",
+    "test": "npm run build && npm run eslint && npm run jest",
+    "build": "tsc",
+    "eslint": "eslint --ext=ts,tsx ./src",
+    "jest": ""
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm test"
+    }
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --ext=ts,tsx --fix",
+      "prettier --write"
+    ],
+    "*.{js,jsx,json}": [
+      "prettier --write"
+    ]
+  },
+  "eslintConfig": {
+    "extends": "pureprofile",
+    "parserOptions": {
+      "project": "./tsconfig.json"
+    }
+  },
+  "prettier": "eslint-config-pureprofile/prettier-config",
+  "dependencies": {
+    "fs-extra": "^9.0.1",
+    "lodash": "^4.17.15",
+    "pg": "^8.2.1",
+    "sequelize": "^6.3.0",
+    "yargs": "^15.4.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^9.0.1",
+    "@types/lodash": "^4.14.157",
+    "@types/node": "^14.0.14",
+    "@types/yargs": "^15.0.5",
+    "@typescript-eslint/eslint-plugin": "^3.5.0",
+    "@typescript-eslint/parser": "^3.5.0",
+    "eslint": "^7.4.0",
+    "eslint-config-pureprofile": "^3.3.5",
+    "husky": "^4.2.5",
+    "lint-staged": "^10.2.11",
+    "prettier": "^2.0.5",
+    "typescript": "^3.9.6"
+  }
+}
