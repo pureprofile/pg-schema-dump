@@ -26,7 +26,7 @@
     "test": "npm run build && npm run eslint && npm run jest",
     "build": "rimraf ./dist && tsc",
     "eslint": "eslint --ext=ts,tsx ./src",
-    "jest": "jest --collectCoverage"
+    "jest": "jest"
   },
   "husky": {
     "hooks": {
