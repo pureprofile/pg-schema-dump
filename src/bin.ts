@@ -3,7 +3,7 @@
 import * as path from 'path';
 import * as yargs from 'yargs';
 import { dumpDb } from './dump-db';
-import { logError } from './utils';
+import { log } from './utils';
 import { Sequelize } from 'sequelize';
 
 const argv = yargs.options({
@@ -22,5 +22,5 @@ dumpDb({
   url,
   out,
 }).catch((err) => {
-  logError(`error dumping db: ${(err as Error).stack || err}`);
+  log.error(`error dumping db: ${(err as Error).stack || err}`);
 });

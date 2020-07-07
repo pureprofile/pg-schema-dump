@@ -1,14 +1,14 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import assert from 'assert';
-import { logWarn } from './utils';
+import { log } from './utils';
 import { Attribute } from './types';
 import { normalizedSrc, unquoted, quotedIfKeyword, sortedAttributes } from './fs-schema-helpers';
 
 export class FsSchema {
   public root: string;
 
-  constructor(root: string) {
+  constructor(root: string, private logger: typeof log | null) {
     this.root = root;
   }
 
@@ -22,7 +22,7 @@ export class FsSchema {
     }
 
     // conflict
-    logWarn(`File already exists for db '${path.basename(this.root)}': ${filePath}`);
+    this.logger?.warn(`File already exists for db '${path.basename(this.root)}': ${filePath}`);
 
     let version = 1;
     do {

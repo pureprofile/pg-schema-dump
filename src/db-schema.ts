@@ -1,6 +1,6 @@
-import { logError } from './utils';
 import { Sequelize } from 'sequelize';
 import { Attribute } from './types';
+import { log } from './utils';
 
 const SkipSchemaNames = ['pg_catalog', 'information_schema', 'scratch'];
 
@@ -18,7 +18,7 @@ const SkipFunctionNames = [
 export class DbSchema {
   public db: Sequelize;
 
-  constructor(url: string) {
+  constructor(url: string, private logger: typeof log | null) {
     this.db = new Sequelize(url, { logging: false });
   }
 
@@ -234,7 +234,7 @@ export class DbSchema {
 
   close() {
     this.db.close().catch((err) => {
-      logError(`error closing the db connection: ${err}`);
+      this.logger?.error(`error closing the db connection: ${err}`);
     });
   }
 }

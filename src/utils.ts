@@ -1,14 +1,14 @@
-export function logInfo(message: string) {
-  // eslint-disable-next-line no-console
-  console.info(message);
-}
-
-export function logWarn(message: string) {
-  // eslint-disable-next-line no-console
-  console.warn(message);
-}
-
-export function logError(message: string) {
-  // eslint-disable-next-line no-console
-  console.error(message);
-}
+export const log = {
+  info: (message: string) => {
+    // eslint-disable-next-line no-console
+    console.info(message);
+  },
+  warn: (message: string) => {
+    // eslint-disable-next-line no-console
+    console.warn(message);
+  },
+  error: (message: string) => {
+    // eslint-disable-next-line no-console
+    console.error(message);
+  },
+};

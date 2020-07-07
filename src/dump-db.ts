@@ -1,13 +1,14 @@
-import { logInfo } from './utils';
+import { log } from './utils';
 import { FsSchema } from './fs-schema';
 import { DbSchema } from './db-schema';
 
-export async function dumpDb({ url, out }: { url: string; out: string }) {
-  const dbSchema = new DbSchema(url);
-  const fsSchema = new FsSchema(out);
+export async function dumpDb({ url, out, logger }: { url: string; out: string; logger?: typeof log | null }) {
+  const _logger = logger !== undefined ? logger : log;
+  const dbSchema = new DbSchema(url, _logger);
+  const fsSchema = new FsSchema(out, _logger);
 
-  logInfo(`connecting to database: ${url}`);
-  logInfo(`dumping contents into: ${out}`);
+  _logger?.info(`connecting to database: ${url}`);
+  _logger?.info(`dumping contents into: ${out}`);
 
   fsSchema.clean();
   for (const { schema, name, src } of await dbSchema.functions()) {

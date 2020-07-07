@@ -47,6 +47,9 @@
     "extends": "pureprofile",
     "parserOptions": {
       "project": "./tsconfig.json"
+    },
+    "rules": {
+      "no-unused-expressions": "off"
     }
   },
   "prettier": "eslint-config-pureprofile/prettier-config",
