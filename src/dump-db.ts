@@ -5,6 +5,7 @@ import { DbSchema } from './db-schema';
 export async function dumpDb({ url, out, logger }: { url: string; out: string; logger?: typeof log | null }) {
   const _logger = logger !== undefined ? logger : log;
   const dbSchema = new DbSchema(url, _logger);
+  await dbSchema.connect();
   const fsSchema = new FsSchema(out, _logger);
 
   _logger?.info(`connecting to database: ${url}`);
@@ -26,5 +27,5 @@ export async function dumpDb({ url, out, logger }: { url: string; out: string; l
   for (const { schema, table, attributes } of await dbSchema.tables()) {
     fsSchema.writeTable({ schema, table, attributes });
   }
-  dbSchema.close();
+  await dbSchema.close();
 }

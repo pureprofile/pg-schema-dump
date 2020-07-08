@@ -1,6 +1,7 @@
-import { Sequelize } from 'sequelize';
+import * as pg from 'pg';
 import { Attribute } from './types';
 import { log } from './utils';
+import { pgQuoteString, pgQuoteStrings } from './db-schema-helpers';
 
 const SkipSchemaNames = ['pg_catalog', 'information_schema', 'scratch'];
 
@@ -16,19 +17,35 @@ const SkipFunctionNames = [
 ];
 
 export class DbSchema {
-  public db: Sequelize;
+  public db: pg.Client;
 
   constructor(url: string, private logger: typeof log | null) {
-    this.db = new Sequelize(url, { logging: false });
+    this.db = new pg.Client({ connectionString: url });
   }
 
-  getDatabaseName() {
-    return this.db.getDatabaseName();
+  connect() {
+    return this.db.connect();
   }
 
-  tablesOrViews(isTable = true) {
+  close() {
+    return this.db.end().catch((err) => {
+      this.logger?.error(`error closing the db connection: ${err}`);
+    });
+  }
+
+  async getDatabaseName() {
+    const result = await this.db.query<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
+    const dbName = result.rows[0].dbName;
+    return dbName;
+  }
+
+  async tablesOrViews(isTable = true) {
     const kind = isTable ? 'r' : 'v';
-    return this.db.query(
+    const result = await this.db.query<{
+      schema: string;
+      table: string;
+      attributes: Attribute[];
+    }>(
       `
       select
         n.nspname "schema",
@@ -112,19 +129,13 @@ export class DbSchema {
       left join pg_catalog.pg_namespace n on
         n.oid = c.relnamespace
       where
-        c.relkind = :kind and
-        n.nspname not in (:SkipSchemaNames)
+        c.relkind = ${pgQuoteString(kind)} and
+        n.nspname not in (${pgQuoteStrings(SkipSchemaNames)})
       order by
         2, 3;
-    `,
-      { type: 'SELECT', replacements: { kind, SkipSchemaNames } }
-    ) as Promise<
-      Array<{
-        schema: string;
-        table: string;
-        attributes: Attribute[];
-      }>
-    >;
+    `
+    );
+    return result.rows;
   }
 
   async tables() {
@@ -132,7 +143,11 @@ export class DbSchema {
   }
 
   async functions() {
-    return this.db.query(
+    const result = await this.db.query<{
+      schema: string;
+      name: string;
+      src: string;
+    }>(
       `
       select
         n.nspname "schema",
@@ -143,22 +158,21 @@ export class DbSchema {
         n.oid = p.pronamespace
       where
         p.proisagg = false and
-        p.proname not in (:SkipFunctionNames) and
-        n.nspname not in (:SkipSchemaNames) and
+        p.proname not in (${pgQuoteStrings(SkipFunctionNames)}) and
+        n.nspname not in (${pgQuoteStrings(SkipSchemaNames)}) and
         probin is null;
-    `,
-      { type: 'SELECT', replacements: { SkipFunctionNames, SkipSchemaNames } }
-    ) as Promise<
-      Array<{
-        schema: string;
-        name: string;
-        src: string;
-      }>
-    >;
+    `
+    );
+    return result.rows;
   }
 
   async indexes() {
-    return this.db.query(
+    const result = await this.db.query<{
+      schema: string;
+      table: string;
+      name: string;
+      src: string;
+    }>(
       `
       select
         schemaname "schema",
@@ -167,41 +181,37 @@ export class DbSchema {
         indexdef || E'\\n' "src"
       from pg_indexes
       where
-        schemaname not in (:SkipSchemaNames);
-    `,
-      { type: 'SELECT', replacements: { SkipSchemaNames } }
-    ) as Promise<
-      Array<{
-        schema: string;
-        table: string;
-        name: string;
-        src: string;
-      }>
-    >;
+        schemaname not in (${pgQuoteStrings(SkipSchemaNames)});
+    `
+    );
+    return result.rows;
   }
 
   async views() {
-    return this.db.query(
+    const result = await this.db.query<{
+      schema: string;
+      name: string;
+      src: string;
+    }>(
       `
       SELECT
         v.schemaname as schema,
         v.viewname as name,
         v.definition as src
       FROM pg_views v
-      WHERE schemaname NOT IN (:SkipSchemaNames);
-    `,
-      { type: 'SELECT', replacements: { SkipSchemaNames } }
-    ) as Promise<
-      Array<{
-        schema: string;
-        name: string;
-        src: string;
-      }>
-    >;
+      WHERE schemaname NOT IN (${pgQuoteStrings(SkipSchemaNames)});
+    `
+    );
+    return result.rows;
   }
 
   async triggers() {
-    return this.db.query(
+    const result = await this.db.query<{
+      schema: string;
+      table: string;
+      name: string;
+      src: string;
+    }>(
       `
       select
         n.nspname "schema",
@@ -217,24 +227,9 @@ export class DbSchema {
       where
         not t.tgisinternal and
         t.tgenabled = 'O' and
-        n.nspname not in (
-          :SkipSchemaNames
-        )
-    `,
-      { type: 'SELECT', replacements: { SkipSchemaNames } }
-    ) as Promise<
-      Array<{
-        schema: string;
-        table: string;
-        name: string;
-        src: string;
-      }>
-    >;
-  }
-
-  close() {
-    this.db.close().catch((err) => {
-      this.logger?.error(`error closing the db connection: ${err}`);
-    });
+        n.nspname not in (${pgQuoteStrings(SkipSchemaNames)})
+    `
+    );
+    return result.rows;
   }
 }

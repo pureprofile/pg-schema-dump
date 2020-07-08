@@ -58,7 +58,6 @@
     "fs-extra": "^9.0.1",
     "lodash": "^4.17.15",
     "pg": "^8.2.1",
-    "sequelize": "^6.3.0",
     "yargs": "^15.4.0"
   },
   "devDependencies": {
