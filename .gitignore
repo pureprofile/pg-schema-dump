@@ -105,3 +105,6 @@ dist
 
 # temporary directory for tests
 __temp__
+
+# test dumps
+/pg-schema-dump
