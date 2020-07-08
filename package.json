@@ -1,20 +1,20 @@
 {
-  "name": "@pureprofile/db-schema-dump",
+  "name": "@pureprofile/pg-schema-dump",
   "version": "0.0.1",
   "description": "",
   "author": "",
   "license": "MIT",
-  "homepage": "https://github.com/pureprofile/db-schema-dump#readme",
+  "homepage": "https://github.com/pureprofile/pg-schema-dump#readme",
   "bugs": {
-    "url": "https://github.com/pureprofile/db-schema-dump/issues"
+    "url": "https://github.com/pureprofile/pg-schema-dump/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pureprofile/db-schema-dump.git"
+    "url": "git+https://github.com/pureprofile/pg-schema-dump.git"
   },
   "main": "./dist/index.js",
   "bin": {
-    "db-schema-dump": "./dist/bin.js"
+    "pg-schema-dump": "./dist/bin.js"
   },
   "files": [
     "/dist",
@@ -26,7 +26,8 @@
     "test": "npm run build && npm run eslint && npm run jest",
     "build": "rimraf ./dist && tsc",
     "eslint": "eslint --ext=ts,tsx ./src",
-    "jest": "jest"
+    "jest": "jest && npm run jest:badges",
+    "jest:badges": "node_modules/.bin/jest-badges-readme"
   },
   "husky": {
     "hooks": {
@@ -61,6 +62,7 @@
     "yargs": "^15.4.0"
   },
   "devDependencies": {
+    "@olavoparno/jest-badges-readme": "^1.5.0",
     "@types/fs-extra": "^9.0.1",
     "@types/jest": "^26.0.3",
     "@types/lodash": "^4.14.157",

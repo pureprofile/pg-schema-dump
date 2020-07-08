@@ -1,6 +1,6 @@
 import * as pg from 'pg';
 
-export const TEST_DB_NAME = `db-schema-dump-test`;
+export const TEST_DB_NAME = `pg-schema-dump-test`;
 
 export function getClient(database = 'postgres') {
   return new pg.Client({

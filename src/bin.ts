@@ -16,7 +16,7 @@ const url = argv.url;
 const db = new Sequelize(url, { logging: false });
 const out = argv.out
   ? path.resolve(process.cwd(), argv.out)
-  : path.resolve(process.cwd(), 'db-schema-dump', env, db.getDatabaseName());
+  : path.resolve(process.cwd(), 'pg-schema-dump', env, db.getDatabaseName());
 
 dumpDb({
   url,
