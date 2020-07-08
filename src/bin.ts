@@ -35,4 +35,5 @@ async function main() {
 
 main().catch((err) => {
   log.error(err);
+  throw err;
 });
