@@ -4,6 +4,7 @@ import { pgQuoteString, pgQuoteStrings } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
 import { FsSchema } from './fs-schema';
+import { uniq } from 'lodash';
 
 const SkipSchemaNames = ['pg_catalog', 'information_schema', 'scratch'];
 
@@ -91,34 +92,53 @@ export class PgClient {
 
   async dumpSchema({ out }: { out: string }) {
     const fsSchema = new FsSchema(out, this._logger);
-
-    this._logger?.info(`connecting to database: ${this._clientConfig.connectionString}`);
     this._logger?.info(`dumping contents into: ${out}`);
-
     fsSchema.clean();
+    const schemas: string[] = [];
     for (const { schema, name, src } of await this.functions()) {
+      schemas.push(schema);
       fsSchema.writeFunction({ schema, name, src });
     }
     for (const { schema, table, name, src } of await this.indexes()) {
+      schemas.push(schema);
       fsSchema.writeIndex({ schema, table, name, src });
     }
     for (const { schema, name, src } of await this.views()) {
+      schemas.push(schema);
       fsSchema.writeView({ schema, name, src });
     }
     for (const { schema, table, name, src } of await this.triggers()) {
+      schemas.push(schema);
       fsSchema.writeTrigger({ schema, table, name, src });
     }
     for (const { schema, table, attributes } of await this.tables()) {
+      schemas.push(schema);
       fsSchema.writeTable({ schema, table, attributes });
+    }
+    for (const { schema, name, src } of await this.sequences()) {
+      schemas.push(schema);
+      fsSchema.writeSequence({ schema, name, src });
+    }
+    for (const schema of uniq(schemas)) {
+      fsSchema.writeSchema({ schema });
     }
   }
 
-  // restoreSchema(config: Omit<Parameters<typeof restoreDb>[0], 'url'>) {
-  //   return restoreDb({
-  //     ...config,
-  //     url: this._client,
-  //   });
-  // }
+  async restoreSchema({ src }: { src: string }) {
+    const fsSchema = new FsSchema(src, this._logger);
+    this._logger?.info(`reading contents from: ${src}`);
+    const fNames = await fsSchema.readDir();
+    for (const fName of fNames) {
+      const contents = await fsSchema.read(fName);
+      try {
+        await this._client.query(contents);
+      } catch (err) {
+        this._logger?.error(`error processing file ${fName}: ${(err as Error).stack || err}`);
+        throw err;
+      }
+    }
+    this._logger?.info(`all contents restored!`);
+  }
 
   async getDatabaseName() {
     const result = await this._client.query<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
@@ -318,5 +338,49 @@ export class PgClient {
     `
     );
     return result.rows;
+  }
+
+  async sequences() {
+    const result = await this._client.query<{
+      sequence_schema: string;
+      sequence_name: string;
+      data_type: string;
+      numeric_precision: number;
+      numeric_precision_radix: number;
+      numeric_scale: number;
+      start_value: string;
+      minimum_value: string;
+      maximum_value: string;
+      increment: string;
+      cycle_option: string;
+    }>(
+      `
+      SELECT
+        sequence_schema,
+        sequence_name,
+        data_type,
+        numeric_precision,
+        numeric_precision_radix,
+        numeric_scale,
+        start_value,
+        minimum_value,
+        maximum_value,
+        increment,
+        cycle_option
+      FROM information_schema.sequences
+      `
+    );
+    return result.rows.map((row) => {
+      return {
+        schema: row.sequence_schema,
+        name: row.sequence_name,
+        src: `
+          CREATE SEQUENCE ${row.sequence_schema}.${row.sequence_name}
+          INCREMENT ${row.increment}
+          MINVALUE ${row.minimum_value}
+          MAXVALUE ${row.maximum_value}
+        `.trim(),
+      };
+    });
   }
 }
