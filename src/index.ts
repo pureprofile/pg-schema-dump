@@ -1,1 +1,1 @@
-export { dumpDb } from './dump-db';
+export { PgClient } from './pg-client';

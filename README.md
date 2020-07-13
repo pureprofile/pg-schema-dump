@@ -6,7 +6,7 @@ utility to dump pg database schema into text comparable format
 
 | Statements | Branches | Functions | Lines |
 | -----------|----------|-----------|-------|
-| ![Statements](https://img.shields.io/badge/Coverage-70.37%25-red.svg "Make me better!") | ![Branches](https://img.shields.io/badge/Coverage-37.5%25-red.svg "Make me better!") | ![Functions](https://img.shields.io/badge/Coverage-60%25-red.svg "Make me better!") | ![Lines](https://img.shields.io/badge/Coverage-71.03%25-red.svg "Make me better!") |
+| ![Statements](https://img.shields.io/badge/Coverage-70.49%25-red.svg "Make me better!") | ![Branches](https://img.shields.io/badge/Coverage-38.78%25-red.svg "Make me better!") | ![Functions](https://img.shields.io/badge/Coverage-68.18%25-red.svg "Make me better!") | ![Lines](https://img.shields.io/badge/Coverage-70.59%25-red.svg "Make me better!") |
 
 ## installation
 

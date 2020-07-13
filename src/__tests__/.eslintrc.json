@@ -2,6 +2,7 @@
   "globals": {
     "test": true,
     "expect": true,
+    "beforeAll": true,
     "afterAll": true
   }
 }

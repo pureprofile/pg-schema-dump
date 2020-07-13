@@ -27,6 +27,7 @@
     "build": "rimraf ./dist && tsc",
     "eslint": "eslint --ext=ts,tsx ./src",
     "jest": "jest && npm run jest:badges",
+    "jest:one": "jest",
     "jest:badges": "node_modules/.bin/jest-badges-readme"
   },
   "husky": {

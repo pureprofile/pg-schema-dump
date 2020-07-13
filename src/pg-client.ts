@@ -1,7 +1,9 @@
 import * as pg from 'pg';
 import { Attribute } from './types';
+import { pgQuoteString, pgQuoteStrings } from './pg-helpers';
 import { log } from './utils';
-import { pgQuoteString, pgQuoteStrings } from './db-schema-helpers';
+import { parse as parsePgConnectionString } from 'pg-connection-string';
+import { FsSchema } from './fs-schema';
 
 const SkipSchemaNames = ['pg_catalog', 'information_schema', 'scratch'];
 
@@ -16,32 +18,117 @@ const SkipFunctionNames = [
   'sec_to_gc',
 ];
 
-export class DbSchema {
-  public db: pg.Client;
+export class PgClient {
+  private _clientConfig: pg.ClientConfig;
+  private _client: pg.Client;
+  private _logger: typeof log | null;
 
-  constructor(url: string, private logger: typeof log | null) {
-    this.db = new pg.Client({ connectionString: url });
+  constructor(
+    config: string | pg.ClientConfig,
+    options: {
+      logger?: typeof log | null;
+    } = {}
+  ) {
+    if (typeof config === 'string') {
+      this._clientConfig = parsePgConnectionString(config) as pg.ClientConfig;
+    } else {
+      this._clientConfig = {
+        database: 'postgres', // default db, otherwise it would not connect
+        ...config,
+      };
+    }
+    this._client = new pg.Client(this._clientConfig);
+    this._logger = options.logger !== undefined ? options.logger : log;
   }
 
   connect() {
-    return this.db.connect();
+    return this._client.connect();
   }
 
-  close() {
-    return this.db.end().catch((err) => {
-      this.logger?.error(`error closing the db connection: ${err}`);
-    });
+  end() {
+    return this._client.end();
   }
+
+  query<T>(query: string) {
+    return this._client.query<T>(query);
+  }
+
+  getDatabases() {
+    return this._client
+      .query<{
+        datname: string;
+      }>(`SELECT datname FROM pg_database`)
+      .then((res) => res.rows.map((row) => row.datname));
+  }
+
+  async databaseExists(db: string) {
+    const databases = await this.getDatabases();
+    return databases.some((x) => x === db);
+  }
+
+  createDatabase(db: string) {
+    return this._client.query(`CREATE DATABASE "${db}"`);
+  }
+
+  dropDatabase(db: string) {
+    return this._client.query(`DROP DATABASE "${db}"`);
+  }
+
+  async switchDatabase(db: string) {
+    await this.end();
+    this._clientConfig.database = db;
+    this._client = new pg.Client(this._clientConfig);
+    await this.connect();
+  }
+
+  async ensureEmptyDb(db: string) {
+    if (await this.databaseExists(db)) {
+      await this.dropDatabase(db);
+    }
+    await this.createDatabase(db);
+    await this.switchDatabase(db);
+  }
+
+  async dumpSchema({ out }: { out: string }) {
+    const fsSchema = new FsSchema(out, this._logger);
+
+    this._logger?.info(`connecting to database: ${this._clientConfig.connectionString}`);
+    this._logger?.info(`dumping contents into: ${out}`);
+
+    fsSchema.clean();
+    for (const { schema, name, src } of await this.functions()) {
+      fsSchema.writeFunction({ schema, name, src });
+    }
+    for (const { schema, table, name, src } of await this.indexes()) {
+      fsSchema.writeIndex({ schema, table, name, src });
+    }
+    for (const { schema, name, src } of await this.views()) {
+      fsSchema.writeView({ schema, name, src });
+    }
+    for (const { schema, table, name, src } of await this.triggers()) {
+      fsSchema.writeTrigger({ schema, table, name, src });
+    }
+    for (const { schema, table, attributes } of await this.tables()) {
+      fsSchema.writeTable({ schema, table, attributes });
+    }
+  }
+
+  // restoreSchema(config: Omit<Parameters<typeof restoreDb>[0], 'url'>) {
+  //   return restoreDb({
+  //     ...config,
+  //     url: this._client,
+  //   });
+  // }
 
   async getDatabaseName() {
-    const result = await this.db.query<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
+    const result = await this._client.query<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
     const dbName = result.rows[0].dbName;
     return dbName;
   }
 
   async tablesOrViews(isTable = true) {
     const kind = isTable ? 'r' : 'v';
-    const result = await this.db.query<{
+    const result = await this._client.query<{
       schema: string;
       table: string;
       attributes: Attribute[];
@@ -143,7 +230,7 @@ export class DbSchema {
   }
 
   async functions() {
-    const result = await this.db.query<{
+    const result = await this._client.query<{
       schema: string;
       name: string;
       src: string;
@@ -167,7 +254,7 @@ export class DbSchema {
   }
 
   async indexes() {
-    const result = await this.db.query<{
+    const result = await this._client.query<{
       schema: string;
       table: string;
       name: string;
@@ -188,7 +275,7 @@ export class DbSchema {
   }
 
   async views() {
-    const result = await this.db.query<{
+    const result = await this._client.query<{
       schema: string;
       name: string;
       src: string;
@@ -206,7 +293,7 @@ export class DbSchema {
   }
 
   async triggers() {
-    const result = await this.db.query<{
+    const result = await this._client.query<{
       schema: string;
       table: string;
       name: string;

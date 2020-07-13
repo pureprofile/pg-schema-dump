@@ -2,9 +2,9 @@
 
 import * as path from 'path';
 import * as yargs from 'yargs';
-import { dumpDb } from './dump-db';
-import { log } from './utils';
 import * as pg from 'pg';
+import { log } from './utils';
+import { PgClient } from './index';
 
 async function main() {
   const argv = yargs.options({
@@ -25,15 +25,13 @@ async function main() {
     ? path.resolve(process.cwd(), argv.out)
     : path.resolve(process.cwd(), 'pg-schema-dump', env, dbName);
 
-  dumpDb({
-    url,
-    out,
-  }).catch((err) => {
-    log.error(`error dumping db: ${(err as Error).stack || err}`);
-  });
+  const client = new PgClient(url);
+  await client.connect();
+  await client.dumpSchema({ out });
+  await client.end();
 }
 
 main().catch((err) => {
-  log.error(err);
+  log.error(`error dumping db: ${(err as Error).stack || err}`);
   throw err;
 });
