@@ -9,7 +9,7 @@ export function normalizedSrc(src: string) {
 }
 
 export function unquoted(value: string) {
-  if (value.startsWith('"')) {
+  if (value.startsWith('"') && value.endsWith('"')) {
     return value.substring(1, value.length - 1);
   }
   return value;

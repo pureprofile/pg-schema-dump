@@ -1,4 +1,5 @@
 import { F_TABLE_PREFIX, F_FUNCTION_PREFIX } from './fs-schema';
+import { unquoted } from './fs-schema-helpers';
 
 export function pgQuoteString(item: string) {
   if (typeof item === 'string') {
@@ -20,13 +21,16 @@ export function pgCreateSchemaSql(schemaName: string) {
 }
 
 export function sqlGetTableReferences(tableSql: string): string[] {
-  const matches = tableSql.match(/references\s+(\w+)/gi);
+  const re = new RegExp(/references\s+([".\w]+)/i);
+  const matches = tableSql.match(new RegExp(re, 'g'));
   if (!matches) {
     return [];
   }
   return matches.map((str) => {
-    const m = /references\s+(\w+)/i.exec(str);
-    return m![1];
+    const m = re.exec(str);
+    const candidate = m![1];
+    const parts = candidate.split('.');
+    return parts.map((p) => unquoted(p)).join('.');
   });
 }
 
