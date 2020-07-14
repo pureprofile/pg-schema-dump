@@ -170,9 +170,10 @@ export class FsSchema {
     const attrWithReference = attributes.filter((attr) => attr.references);
     for (const attr of attrWithReference) {
       const ref = attr.references!;
+      const fkName = quotedIfUnsafe(attr.name + '_fk');
       const sql = `
         ALTER TABLE ${schema}.${table}
-        ADD CONSTRAINT
+        ADD CONSTRAINT ${fkName}
         FOREIGN KEY (${quotedIfUnsafe(attr.name)})
         REFERENCES ${ref.table} ${ref.attribute.isPrimaryKey ? `` : `(${ref.attribute.name})`}
       `
@@ -180,7 +181,7 @@ export class FsSchema {
         .map((l) => l.trim())
         .filter((l) => l)
         .join('\n');
-      this.outputFileSyncSafe(path.join(this.root, `${F_FOREIGN_KEY_PREFIX}${schema}.${table}.${attr.name}.sql`), sql);
+      this.outputFileSyncSafe(path.join(this.root, `${F_FOREIGN_KEY_PREFIX}${schema}.${table}.${fkName}.sql`), sql);
     }
   }
 }
