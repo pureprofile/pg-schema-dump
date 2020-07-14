@@ -132,16 +132,19 @@ export class FsSchema {
     }
 
     const safeName = quotedIfKeyword(name);
+    let refStr = null;
+    if (references) {
+      // references are handled in separate files, so just comment here
+      const colRefStr = references.attribute.isPrimaryKey ? `` : `(${references.attribute.name})`;
+      refStr = `/* references ${references.table}${colRefStr} */`;
+    }
     return [
       safeName,
       type,
       isNotNull ? 'not null' : null,
       defaultValue ? `default ${defaultValue}` : null,
       isPrimaryKey ? `primary key` : null,
-      // references are handled in separate files
-      // references
-      //   ? `references ${references.table}${references.attribute.isPrimaryKey ? '' : `(${references.attribute.name})`}`
-      //   : null,
+      refStr,
     ]
       .filter((e) => e != null)
       .join(' ');
