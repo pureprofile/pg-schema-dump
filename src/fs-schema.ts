@@ -7,14 +7,14 @@ import { normalizedSrc, unquoted, quotedIfKeyword, sortedAttributes } from './fs
 import { pgCreateSchemaSql, pgCreateExtensionSql } from './pg-helpers';
 import { sortBy } from 'lodash';
 
-export const F_EXTENSION_PREFIX = '$extension.';
-export const F_FUNCTION_PREFIX = '$function.';
-export const F_INDEX_PREFIX = '$index.';
-export const F_SCHEMA_PREFIX = '$schema.';
-export const F_SEQUENCE_PREFIX = '$sequence.';
-export const F_TABLE_PREFIX = '$table.';
-export const F_TRIGGER_PREFIX = '$trigger.';
-export const F_VIEW_PREFIX = '$view.';
+export const F_EXTENSION_PREFIX = 'extension.';
+export const F_FUNCTION_PREFIX = 'function.';
+export const F_INDEX_PREFIX = 'index.';
+export const F_SCHEMA_PREFIX = 'schema.';
+export const F_SEQUENCE_PREFIX = 'sequence.';
+export const F_TABLE_PREFIX = 'table.';
+export const F_TRIGGER_PREFIX = 'trigger.';
+export const F_VIEW_PREFIX = 'view.';
 
 export class FsSchema {
   public root: string;

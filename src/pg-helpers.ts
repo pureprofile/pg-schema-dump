@@ -69,12 +69,16 @@ function findAndShift({
   if (fName.startsWith(F_TABLE_PREFIX)) {
     const references = refFn(fContents);
     if (references.length > 0) {
-      const found = fNames.findIndex((f) => f.startsWith(refPrefix) && f.includes(`.${references[0]}.`));
-      if (found > 0) {
-        const removed = fNames.splice(found, 1);
-        fNames.unshift(...removed);
-        return true;
+      let retVal = false;
+      for (const reference of references) {
+        const found = fNames.findIndex((f) => f.startsWith(refPrefix) && f.includes(`.${reference}.`));
+        if (found > 0) {
+          const removed = fNames.splice(found, 1);
+          fNames.unshift(...removed);
+          retVal = true;
+        }
       }
+      return retVal;
     }
   }
   return false;
