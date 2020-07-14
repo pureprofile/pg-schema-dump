@@ -1,15 +1,19 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import assert from 'assert';
-import { log } from './utils';
 import { Attribute } from './types';
+import { log } from './utils';
 import { normalizedSrc, unquoted, quotedIfKeyword, sortedAttributes } from './fs-schema-helpers';
 import { pgCreateSchemaSql } from './pg-helpers';
 import { sortBy } from 'lodash';
 
-const SCHEMA_PREFIX = '$schema';
-const SEQUENCE_PREFIX = 'sequence';
-const TABLE_PREFIX = 'table';
+export const F_FUNCTION_PREFIX = '$function.';
+export const F_INDEX_PREFIX = '$index.';
+export const F_SCHEMA_PREFIX = '$schema.';
+export const F_SEQUENCE_PREFIX = '$sequence.';
+export const F_TABLE_PREFIX = '$table.';
+export const F_TRIGGER_PREFIX = '$trigger.';
+export const F_VIEW_PREFIX = '$view.';
 
 export class FsSchema {
   public root: string;
@@ -25,8 +29,11 @@ export class FsSchema {
   async readDir() {
     const files = await fs.readdir(this.root);
     return sortBy(files, (file) => {
-      const parts = file.split('.');
-      const checks = [parts[0] === SCHEMA_PREFIX, parts[1] === SEQUENCE_PREFIX, parts[1] === TABLE_PREFIX];
+      const checks = [
+        file.startsWith(F_SCHEMA_PREFIX),
+        file.startsWith(F_SEQUENCE_PREFIX),
+        file.startsWith(F_TABLE_PREFIX),
+      ];
       const num = checks.indexOf(true) !== -1 ? checks.indexOf(true) : checks.length;
       return `${num}-${file}`;
     });
@@ -53,30 +60,33 @@ export class FsSchema {
   }
 
   writeSchema({ schema }: { schema: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${SCHEMA_PREFIX}.${schema}.sql`), pgCreateSchemaSql(schema));
+    this.outputFileSyncSafe(path.join(this.root, `${F_SCHEMA_PREFIX}${schema}.sql`), pgCreateSchemaSql(schema));
   }
 
   writeFunction({ schema, name, src }: { schema: string; name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${schema}.function.${name}.sql`), normalizedSrc(src));
+    this.outputFileSyncSafe(path.join(this.root, `${F_FUNCTION_PREFIX}${schema}.${name}.sql`), normalizedSrc(src));
   }
 
   writeIndex({ schema, table, name, src }: { schema: string; table: string; name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${schema}.index.${table}.${name}.sql`), src);
+    this.outputFileSyncSafe(path.join(this.root, `${F_INDEX_PREFIX}${schema}.${table}.${name}.sql`), src);
   }
 
   writeSequence({ schema, name, src }: { schema: string; name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${schema}.${SEQUENCE_PREFIX}.${name}.sql`), src);
+    this.outputFileSyncSafe(path.join(this.root, `${F_SEQUENCE_PREFIX}${schema}.${name}.sql`), src);
   }
 
   writeView({ schema, name, src }: { schema: string; name: string; src: string }) {
     this.outputFileSyncSafe(
-      path.join(this.root, `${schema}.view.${name}.sql`),
+      path.join(this.root, `${F_VIEW_PREFIX}${schema}.${name}.sql`),
       `CREATE OR REPLACE VIEW ${schema}.${name} AS\n${src}\n`
     );
   }
 
   writeTrigger({ schema, table, name, src }: { schema: string; table: string; name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${schema}.trigger.${unquoted(table)}.${name}.sql`), `${src}\n`);
+    this.outputFileSyncSafe(
+      path.join(this.root, `${F_TRIGGER_PREFIX}${schema}.${unquoted(table)}.${name}.sql`),
+      `${src}\n`
+    );
   }
 
   attributeSql({
@@ -125,7 +135,7 @@ export class FsSchema {
 
   writeTable({ schema, table, attributes }: { schema: string; table: string; attributes: Attribute[] }) {
     this.outputFileSyncSafe(
-      path.join(this.root, `${schema}.${TABLE_PREFIX}.${table}.sql`),
+      path.join(this.root, `${F_TABLE_PREFIX}${schema}.${table}.sql`),
       [
         `create table ${schema}.${table} (`,
         sortedAttributes(attributes)

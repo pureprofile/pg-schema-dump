@@ -1,9 +1,9 @@
 import * as pg from 'pg';
 import { Attribute } from './types';
-import { pgQuoteString, pgQuoteStrings } from './pg-helpers';
+import { pgQuoteString, pgQuoteStrings, sqlGetTableReferences } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
-import { FsSchema } from './fs-schema';
+import { FsSchema, F_TABLE_PREFIX } from './fs-schema';
 import { uniq } from 'lodash';
 
 const SkipSchemaNames = ['pg_catalog', 'information_schema', 'scratch'];
@@ -128,10 +128,28 @@ export class PgClient {
     const fsSchema = new FsSchema(src, this._logger);
     this._logger?.info(`reading contents from: ${src}`);
     const fNames = await fsSchema.readDir();
-    for (const fName of fNames) {
+    while (fNames.length > 0) {
+      const fName = fNames[0];
       const contents = await fsSchema.read(fName);
+
+      // handle references to other tables
+      if (fName.startsWith(F_TABLE_PREFIX)) {
+        const references = sqlGetTableReferences(contents);
+        if (references.length > 0) {
+          const found = fNames.findIndex((f) => f.startsWith(F_TABLE_PREFIX) && f.includes(`.${references[0]}.`));
+          if (found > 0) {
+            const removed = fNames.splice(found, 1);
+            fNames.unshift(...removed);
+            continue;
+          }
+        }
+      }
+      // end: handle references to other tables
+
       try {
         await this._client.query(contents);
+        // remove the file if it was processed without error
+        fNames.shift();
       } catch (err) {
         this._logger?.error(`error processing file ${fName}: ${(err as Error).stack || err}`);
         throw err;
