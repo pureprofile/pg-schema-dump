@@ -1,5 +1,6 @@
 import { F_TABLE_PREFIX, F_FUNCTION_PREFIX } from './fs-schema';
 import { unquoted } from './fs-schema-helpers';
+import { parse as pgParseArray } from 'postgres-array';
 
 export function pgQuoteString(item: string) {
   if (typeof item === 'string') {
@@ -18,6 +19,10 @@ export function pgCreateExtensionSql(name: string) {
 
 export function pgCreateSchemaSql(schemaName: string) {
   return `CREATE SCHEMA IF NOT EXISTS "${schemaName}"`;
+}
+
+export function pgStringArray(input: string): string[] {
+  return pgParseArray(input, (item) => item);
 }
 
 export function sqlGetTableReferences(tableSql: string): string[] {

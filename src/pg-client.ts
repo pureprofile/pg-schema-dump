@@ -5,6 +5,7 @@ import {
   pgQuoteStrings,
   findAndShiftTableReferences,
   findAndShiftFunctionReferences,
+  pgStringArray,
 } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
@@ -103,6 +104,9 @@ export class PgClient {
     for (const { name } of await this.extensions()) {
       fsSchema.writeExtension({ name });
     }
+    for (const { name, src } of await this.types()) {
+      fsSchema.writeType({ name, src });
+    }
     for (const { schema, name, src } of await this.functions()) {
       schemas.push(schema);
       fsSchema.writeFunction({ schema, name, src });
@@ -175,6 +179,33 @@ export class PgClient {
     return result.rows.map((row) => {
       return {
         name: row.extname,
+      };
+    });
+  }
+
+  async types() {
+    const result = await this._client.query<{
+      type_name: string;
+      enum_values: string;
+    }>(`
+      WITH types AS (
+        SELECT
+          t.typname AS "type_name",
+          e.enumsortorder AS "enum_order",
+          e.enumlabel AS "enum_label"
+        FROM pg_type t
+        JOIN pg_enum e ON e.enumtypid = t.oid
+        ORDER BY 1,2
+      )
+      SELECT
+        "type_name",
+        array_agg("enum_label") AS "enum_values"
+      FROM types GROUP BY 1    
+    `);
+    return result.rows.map((row) => {
+      return {
+        name: row.type_name,
+        src: `CREATE TYPE "${row.type_name}" AS ENUM (${pgStringArray(row.enum_values).map(pgQuoteString)})`,
       };
     });
   }

@@ -14,6 +14,7 @@ export const F_SCHEMA_PREFIX = 'schema.';
 export const F_SEQUENCE_PREFIX = 'sequence.';
 export const F_TABLE_PREFIX = 'table.';
 export const F_TRIGGER_PREFIX = 'trigger.';
+export const F_TYPE_PREFIX = 'type.';
 export const F_VIEW_PREFIX = 'view.';
 
 export class FsSchema {
@@ -34,6 +35,7 @@ export class FsSchema {
         file.startsWith(F_EXTENSION_PREFIX),
         file.startsWith(F_SCHEMA_PREFIX),
         file.startsWith(F_SEQUENCE_PREFIX),
+        file.startsWith(F_TYPE_PREFIX),
         file.startsWith(F_TABLE_PREFIX),
       ];
       const num = checks.indexOf(true) !== -1 ? checks.indexOf(true) : checks.length;
@@ -67,6 +69,10 @@ export class FsSchema {
 
   writeSchema({ schema }: { schema: string }) {
     this.outputFileSyncSafe(path.join(this.root, `${F_SCHEMA_PREFIX}${schema}.sql`), pgCreateSchemaSql(schema));
+  }
+
+  writeType({ name, src }: { name: string; src: string }) {
+    this.outputFileSyncSafe(path.join(this.root, `${F_TYPE_PREFIX}${name}.sql`), normalizedSrc(src));
   }
 
   writeFunction({ schema, name, src }: { schema: string; name: string; src: string }) {
