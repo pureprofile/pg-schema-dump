@@ -8,6 +8,7 @@ import { pgCreateSchemaSql, pgCreateExtensionSql } from './pg-helpers';
 import { sortBy } from 'lodash';
 
 export const F_EXTENSION_PREFIX = 'extension.';
+export const F_FOREIGN_KEY_PREFIX = 'fk.';
 export const F_FUNCTION_PREFIX = 'function.';
 export const F_INDEX_PREFIX = 'index.';
 export const F_SCHEMA_PREFIX = 'schema.';
@@ -137,9 +138,10 @@ export class FsSchema {
       isNotNull ? 'not null' : null,
       defaultValue ? `default ${defaultValue}` : null,
       isPrimaryKey ? `primary key` : null,
-      references
-        ? `references ${references.table}${references.attribute.isPrimaryKey ? '' : `(${references.attribute.name})`}`
-        : null,
+      // references are handled in separate files
+      // references
+      //   ? `references ${references.table}${references.attribute.isPrimaryKey ? '' : `(${references.attribute.name})`}`
+      //   : null,
     ]
       .filter((e) => e != null)
       .join(' ');
@@ -162,5 +164,20 @@ export class FsSchema {
         ');\n',
       ].join('\n')
     );
+    const attrWithReference = attributes.filter((attr) => attr.references);
+    for (const attr of attrWithReference) {
+      const ref = attr.references!;
+      const sql = `
+        ALTER TABLE ${schema}.${table}
+        ADD CONSTRAINT
+        FOREIGN KEY (${quotedIfKeyword(attr.name)})
+        REFERENCES ${ref.table} ${ref.attribute.isPrimaryKey ? `` : `(${ref.attribute.name})`}
+      `
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l)
+        .join('\n');
+      this.outputFileSyncSafe(path.join(this.root, `${F_FOREIGN_KEY_PREFIX}${schema}.${table}.${attr.name}.sql`), sql);
+    }
   }
 }

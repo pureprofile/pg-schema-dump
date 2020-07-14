@@ -5,7 +5,7 @@ export interface Attribute {
   isNotNull?: boolean;
   defaultValue: string | null;
   description: string;
-  references: Reference;
+  references?: Reference;
   isPrimaryKey: boolean;
 }
 

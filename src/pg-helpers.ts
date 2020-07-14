@@ -89,16 +89,6 @@ function findAndShift({
   return false;
 }
 
-export function findAndShiftTableReferences(fName: string, fContents: string, fNames: string[]): boolean {
-  return findAndShift({
-    fName,
-    fNames,
-    fContents,
-    refFn: sqlGetTableReferences,
-    refPrefix: F_TABLE_PREFIX,
-  });
-}
-
 export function findAndShiftFunctionReferences(fName: string, fContents: string, fNames: string[]): boolean {
   return findAndShift({
     fName,

@@ -1,12 +1,6 @@
 import * as pg from 'pg';
 import { Attribute } from './types';
-import {
-  pgQuoteString,
-  pgQuoteStrings,
-  findAndShiftTableReferences,
-  findAndShiftFunctionReferences,
-  pgStringArray,
-} from './pg-helpers';
+import { pgQuoteString, pgQuoteStrings, findAndShiftFunctionReferences, pgStringArray } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
 import { FsSchema } from './fs-schema';
@@ -145,10 +139,8 @@ export class PgClient {
       const fContents = await fsSchema.read(fName);
 
       // handle references
-      if (findAndShiftTableReferences(fName, fContents, fNames)) {
-        continue;
-      }
       if (findAndShiftFunctionReferences(fName, fContents, fNames)) {
+        // this._logger?.info(`found function references, skipping ${fName}`);
         continue;
       }
 
