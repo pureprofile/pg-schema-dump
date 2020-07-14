@@ -1,9 +1,14 @@
 import * as pg from 'pg';
 import { Attribute } from './types';
-import { pgQuoteString, pgQuoteStrings, sqlGetTableReferences } from './pg-helpers';
+import {
+  pgQuoteString,
+  pgQuoteStrings,
+  findAndShiftTableReferences,
+  findAndShiftFunctionReferences,
+} from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
-import { FsSchema, F_TABLE_PREFIX } from './fs-schema';
+import { FsSchema } from './fs-schema';
 import { uniq } from 'lodash';
 
 const SkipSchemaNames = ['pg_catalog', 'information_schema', 'scratch'];
@@ -95,6 +100,9 @@ export class PgClient {
     this._logger?.info(`dumping contents into: ${out}`);
     fsSchema.clean();
     const schemas: string[] = [];
+    for (const { name } of await this.extensions()) {
+      fsSchema.writeExtension({ name });
+    }
     for (const { schema, name, src } of await this.functions()) {
       schemas.push(schema);
       fsSchema.writeFunction({ schema, name, src });
@@ -130,24 +138,18 @@ export class PgClient {
     const fNames = await fsSchema.readDir();
     while (fNames.length > 0) {
       const fName = fNames[0];
-      const contents = await fsSchema.read(fName);
+      const fContents = await fsSchema.read(fName);
 
-      // handle references to other tables
-      if (fName.startsWith(F_TABLE_PREFIX)) {
-        const references = sqlGetTableReferences(contents);
-        if (references.length > 0) {
-          const found = fNames.findIndex((f) => f.startsWith(F_TABLE_PREFIX) && f.includes(`.${references[0]}.`));
-          if (found > 0) {
-            const removed = fNames.splice(found, 1);
-            fNames.unshift(...removed);
-            continue;
-          }
-        }
+      // handle references
+      if (findAndShiftTableReferences(fName, fContents, fNames)) {
+        continue;
       }
-      // end: handle references to other tables
+      if (findAndShiftFunctionReferences(fName, fContents, fNames)) {
+        continue;
+      }
 
       try {
-        await this._client.query(contents);
+        await this._client.query(fContents);
         // remove the file if it was processed without error
         fNames.shift();
       } catch (err) {
@@ -162,6 +164,19 @@ export class PgClient {
     const result = await this._client.query<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
     const dbName = result.rows[0].dbName;
     return dbName;
+  }
+
+  async extensions() {
+    const result = await this._client.query<{
+      extname: string;
+    }>(`
+      SELECT extname FROM pg_extension
+    `);
+    return result.rows.map((row) => {
+      return {
+        name: row.extname,
+      };
+    });
   }
 
   async tablesOrViews(isTable = true) {

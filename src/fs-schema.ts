@@ -4,9 +4,10 @@ import assert from 'assert';
 import { Attribute } from './types';
 import { log } from './utils';
 import { normalizedSrc, unquoted, quotedIfKeyword, sortedAttributes } from './fs-schema-helpers';
-import { pgCreateSchemaSql } from './pg-helpers';
+import { pgCreateSchemaSql, pgCreateExtensionSql } from './pg-helpers';
 import { sortBy } from 'lodash';
 
+export const F_EXTENSION_PREFIX = '$extension.';
 export const F_FUNCTION_PREFIX = '$function.';
 export const F_INDEX_PREFIX = '$index.';
 export const F_SCHEMA_PREFIX = '$schema.';
@@ -30,6 +31,7 @@ export class FsSchema {
     const files = await fs.readdir(this.root);
     return sortBy(files, (file) => {
       const checks = [
+        file.startsWith(F_EXTENSION_PREFIX),
         file.startsWith(F_SCHEMA_PREFIX),
         file.startsWith(F_SEQUENCE_PREFIX),
         file.startsWith(F_TABLE_PREFIX),
@@ -57,6 +59,10 @@ export class FsSchema {
     } while (fs.existsSync(`${filePath}_v${version}`));
 
     return fs.outputFileSync(`${filePath}_v${version}`, content);
+  }
+
+  writeExtension({ name }: { name: string }) {
+    this.outputFileSyncSafe(path.join(this.root, `${F_EXTENSION_PREFIX}${name}.sql`), pgCreateExtensionSql(name));
   }
 
   writeSchema({ schema }: { schema: string }) {
