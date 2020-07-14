@@ -17,8 +17,8 @@ export function unquoted(value: string) {
 
 const Keywords = ['count', 'end', 'from', 'limit', 'line', 'uuid', 'order'];
 
-export function quotedIfKeyword(value: string) {
-  if (Keywords.includes(value.toLowerCase())) {
+export function quotedIfUnsafe(value: string) {
+  if (value.includes('?') || Keywords.includes(value.toLowerCase())) {
     return `"${value}"`;
   }
   return value;

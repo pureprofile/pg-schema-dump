@@ -1,4 +1,4 @@
-import { normalizedSrc, unquoted, quotedIfKeyword, sortedAttributes } from '../fs-schema-helpers';
+import { normalizedSrc, unquoted, quotedIfUnsafe, sortedAttributes } from '../fs-schema-helpers';
 
 test('normalizedSrc', () => {
   expect(normalizedSrc(null as any)).toBe(null);
@@ -16,9 +16,10 @@ test('unquoted', () => {
 });
 
 test('quotedIfKeyword', () => {
-  expect(quotedIfKeyword(`count`)).toBe(`"count"`);
-  expect(quotedIfKeyword(`from`)).toBe(`"from"`);
-  expect(quotedIfKeyword(`happy`)).toBe(`happy`);
+  expect(quotedIfUnsafe(`count`)).toBe(`"count"`);
+  expect(quotedIfUnsafe(`from`)).toBe(`"from"`);
+  expect(quotedIfUnsafe(`happy`)).toBe(`happy`);
+  expect(quotedIfUnsafe(`?column?`)).toBe(`"?column?"`);
 });
 
 test('sortedAttributes', () => {

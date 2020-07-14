@@ -3,7 +3,7 @@ import * as path from 'path';
 import assert from 'assert';
 import { Attribute } from './types';
 import { log } from './utils';
-import { normalizedSrc, unquoted, quotedIfKeyword, sortedAttributes } from './fs-schema-helpers';
+import { normalizedSrc, unquoted, quotedIfUnsafe, sortedAttributes } from './fs-schema-helpers';
 import { pgCreateSchemaSql, pgCreateExtensionSql } from './pg-helpers';
 import { sortBy } from 'lodash';
 
@@ -131,7 +131,7 @@ export class FsSchema {
       });
     }
 
-    const safeName = quotedIfKeyword(name);
+    const safeName = quotedIfUnsafe(name);
     let refStr = null;
     if (references) {
       // references are handled in separate files, so just comment here
@@ -173,7 +173,7 @@ export class FsSchema {
       const sql = `
         ALTER TABLE ${schema}.${table}
         ADD CONSTRAINT
-        FOREIGN KEY (${quotedIfKeyword(attr.name)})
+        FOREIGN KEY (${quotedIfUnsafe(attr.name)})
         REFERENCES ${ref.table} ${ref.attribute.isPrimaryKey ? `` : `(${ref.attribute.name})`}
       `
         .split('\n')
