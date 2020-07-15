@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "start": "npm run build && node ./dist/bin.js",
-    "prepublish": "npm test",
+    "prepublishOnly": "npm test",
     "test": "npm run build && npm run eslint && npm run jest",
     "build": "rimraf ./dist && tsc",
     "eslint": "eslint --ext=ts,tsx ./src",
