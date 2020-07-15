@@ -1,5 +1,5 @@
-import { Attribute } from './types';
 import { sortBy } from 'lodash';
+import { Attribute } from './pg-objects/tables';
 
 export function normalizedSrc(src: string) {
   if (typeof src !== 'string') {

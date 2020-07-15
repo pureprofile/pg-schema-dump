@@ -18,6 +18,7 @@ test('check if the test database exists & drop if it does', async () => {
     const drop = await client.dropDatabase(TEST_DB_NAME);
     expect(drop.command).toBe('DROP');
   }
+  expect(await client.databaseExists(TEST_DB_NAME)).toBe(false);
 });
 
 test('create an empty test database & switch to it', async () => {
@@ -40,7 +41,7 @@ test('empty database should produce empty dump', async () => {
 });
 
 test('should create and dump a function', async () => {
-  const fnName = `public.function.is_my_num_one_two_three.sql`;
+  const fnName = `function.public.is_my_num_one_two_three.sql`;
   const fnBody = fs.readFileSync(path.resolve(__dirname, 'files', fnName), 'utf8');
   await client.query(fnBody);
   await client.dumpSchema({
@@ -48,8 +49,9 @@ test('should create and dump a function', async () => {
   });
 
   const dirContents = fs.readdirSync(dumpDirectory);
-  expect(dirContents.length).toBe(1);
-  expect(dirContents[0]).toBe(fnName);
+  expect(dirContents.length).toBe(2);
+  expect(dirContents.includes('schema.public.sql')).toBe(true);
+  expect(dirContents.includes(fnName)).toBe(true);
 
   const fileContents = fs.readFileSync(path.resolve(dumpDirectory, fnName), 'utf8');
   expect(fileContents).toBe(fnBody);

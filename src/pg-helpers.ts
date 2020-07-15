@@ -1,42 +1,25 @@
 import { F_TABLE_PREFIX, F_FUNCTION_PREFIX } from './fs-schema';
-import { unquoted } from './fs-schema-helpers';
 import { parse as pgParseArray } from 'postgres-array';
 
-export function pgQuoteString(item: string) {
+export function all<T>(fn: (arg: T) => T) {
+  return (items: T[]) => {
+    return items.map(fn);
+  };
+}
+
+export function pgQuoteString(item: string): string {
   if (typeof item === 'string') {
     return `'${item}'`;
   }
   return item;
 }
 
-export function pgQuoteStrings(arr: string[]) {
+export function pgQuoteStrings(arr: string[]): string[] {
   return arr.map(pgQuoteString);
-}
-
-export function pgCreateExtensionSql(name: string) {
-  return `CREATE EXTENSION IF NOT EXISTS "${name}"`;
-}
-
-export function pgCreateSchemaSql(schemaName: string) {
-  return `CREATE SCHEMA IF NOT EXISTS "${schemaName}"`;
 }
 
 export function pgStringArray(input: string): string[] {
   return pgParseArray(input, (item) => item);
-}
-
-export function sqlGetTableReferences(tableSql: string): string[] {
-  const re = new RegExp(/references\s+([".\w]+)/i);
-  const matches = tableSql.match(new RegExp(re, 'g'));
-  if (!matches) {
-    return [];
-  }
-  return matches.map((str) => {
-    const m = re.exec(str);
-    const candidate = m![1];
-    const parts = candidate.split('.');
-    return parts.map((p) => unquoted(p)).join('.');
-  });
 }
 
 const PG_BUILTIN_FUNCTIONS = ['now', 'NOW', 'nextval', 'NEXTVAL'];

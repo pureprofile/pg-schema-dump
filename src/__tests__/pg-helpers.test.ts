@@ -1,4 +1,4 @@
-import { sqlGetTableReferences, sqlGetFunctionReferences } from '../pg-helpers';
+import { sqlGetFunctionReferences } from '../pg-helpers';
 
 const tableSql = `
 create table my.table (
@@ -11,15 +11,6 @@ create table my.table (
   user_id bigint not null references "user"
 );
 `;
-
-test('sqlGetTableReferences', () => {
-  expect(sqlGetTableReferences(tableSql)).toEqual([
-    'data_source',
-    'account_schema.account',
-    'account_schema.user',
-    'user',
-  ]);
-});
 
 test('sqlGetFunctionReferences', () => {
   expect(sqlGetFunctionReferences(tableSql)).toEqual(['uuid_generate_v4']);

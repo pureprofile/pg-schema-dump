@@ -1,6 +1,6 @@
 {
   "name": "@pureprofile/pg-schema-dump",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "",
   "author": "",
   "license": "MIT",
@@ -56,6 +56,7 @@
   },
   "prettier": "eslint-config-pureprofile/prettier-config",
   "dependencies": {
+    "auto-bind": "^4.0.0",
     "fs-extra": "^9.0.1",
     "lodash": "^4.17.19",
     "pg": "^8.3.0",
