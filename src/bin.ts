@@ -1,4 +1,4 @@
-/* eslint-disable no-process-env */
+#!/usr/bin/env node
 
 import * as path from 'path';
 import * as yargs from 'yargs';
@@ -12,6 +12,7 @@ async function main() {
     out: { type: 'string', description: 'path to dump the db into' },
   }).argv;
 
+  // eslint-disable-next-line no-process-env
   const env = process.env.NODE_ENV || 'development';
   const url = argv.url;
 
