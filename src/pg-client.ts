@@ -127,7 +127,7 @@ export class PgClient {
       ...views.map(getSchema),
     ]).map((schema) => fsSchema.writeSchema({ schema }));
 
-    this._logger?.info(`finished dump of: ${this.getCurrentDatabase()}`);
+    this._logger?.info(`finished dump of: ${await this.getCurrentDatabase()}`);
   }
 
   async restoreSchema({ src }: { src: string }) {
