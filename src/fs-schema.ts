@@ -51,59 +51,61 @@ export class FsSchema {
     return fs.readFile(path.resolve(this.root, fName), 'utf8');
   }
 
-  outputFileSyncSafe(filePath: string, content: string) {
-    if (!fs.existsSync(filePath)) {
-      return fs.outputFileSync(filePath, content);
+  outputFileSyncSafe(fileName: string, fileExtension: string, content: string) {
+    let filePath = `${fileName}.${fileExtension}`;
+
+    if (fs.existsSync(filePath)) {
+      // conflict, find a non-existing file name
+      let version = 1;
+      do {
+        version += 1;
+        filePath = `${fileName}.v${version}.${fileExtension}`;
+      } while (fs.existsSync(filePath));
+      this.logger?.warn(`File already exists for folder '${path.basename(this.root)}', using name: ${filePath}`);
     }
 
-    // conflict
-    this.logger?.warn(`File already exists for db '${path.basename(this.root)}': ${filePath}`);
-
-    let version = 1;
-    do {
-      version += 1;
-    } while (fs.existsSync(`${filePath}_v${version}`));
-
-    return fs.outputFileSync(`${filePath}_v${version}`, content);
+    return fs.outputFileSync(filePath, content);
   }
 
   writeExtension(e: { name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${F_EXTENSION_PREFIX}${e.name}.sql`), e.src);
+    this.outputFileSyncSafe(path.join(this.root, `${F_EXTENSION_PREFIX}${e.name}`), 'sql', e.src);
     return e;
   }
 
   writeSchema(s: { schema: string }) {
     const sql = `CREATE SCHEMA IF NOT EXISTS "${s.schema}"`;
-    this.outputFileSyncSafe(path.join(this.root, `${F_SCHEMA_PREFIX}${s.schema}.sql`), sql);
+    this.outputFileSyncSafe(path.join(this.root, `${F_SCHEMA_PREFIX}${s.schema}`), 'sql', sql);
     return s;
   }
 
   writeType(t: { name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${F_TYPE_PREFIX}${t.name}.sql`), normalizedSrc(t.src));
+    this.outputFileSyncSafe(path.join(this.root, `${F_TYPE_PREFIX}${t.name}`), 'sql', normalizedSrc(t.src));
     return t;
   }
 
   writeFunction(f: { schema: string; name: string; src: string }) {
     this.outputFileSyncSafe(
-      path.join(this.root, `${F_FUNCTION_PREFIX}${f.schema}.${f.name}.sql`),
+      path.join(this.root, `${F_FUNCTION_PREFIX}${f.schema}.${f.name}`),
+      'sql',
       normalizedSrc(f.src)
     );
     return f;
   }
 
   writeIndex(i: { schema: string; table: string; name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${F_INDEX_PREFIX}${i.schema}.${i.table}.${i.name}.sql`), i.src);
+    this.outputFileSyncSafe(path.join(this.root, `${F_INDEX_PREFIX}${i.schema}.${i.table}.${i.name}`), 'sql', i.src);
     return i;
   }
 
   writeSequence(s: { schema: string; name: string; src: string }) {
-    this.outputFileSyncSafe(path.join(this.root, `${F_SEQUENCE_PREFIX}${s.schema}.${s.name}.sql`), s.src);
+    this.outputFileSyncSafe(path.join(this.root, `${F_SEQUENCE_PREFIX}${s.schema}.${s.name}`), 'sql', s.src);
     return s;
   }
 
   writeView(v: { schema: string; name: string; src: string }) {
     this.outputFileSyncSafe(
-      path.join(this.root, `${F_VIEW_PREFIX}${v.schema}.${v.name}.sql`),
+      path.join(this.root, `${F_VIEW_PREFIX}${v.schema}.${v.name}`),
+      'sql',
       `CREATE OR REPLACE VIEW ${v.schema}.${v.name} AS\n${v.src}\n`
     );
     return v;
@@ -111,7 +113,8 @@ export class FsSchema {
 
   writeTrigger(t: { schema: string; table: string; name: string; src: string }) {
     this.outputFileSyncSafe(
-      path.join(this.root, `${F_TRIGGER_PREFIX}${t.schema}.${unquoted(t.table)}.${t.name}.sql`),
+      path.join(this.root, `${F_TRIGGER_PREFIX}${t.schema}.${unquoted(t.table)}.${t.name}`),
+      'sql',
       `${t.src}\n`
     );
     return t;
@@ -168,7 +171,8 @@ export class FsSchema {
   writeTable(t: { schema: string; table: string; attributes: Attribute[] }) {
     const { schema, table, attributes } = t;
     this.outputFileSyncSafe(
-      path.join(this.root, `${F_TABLE_PREFIX}${schema}.${table}.sql`),
+      path.join(this.root, `${F_TABLE_PREFIX}${schema}.${table}`),
+      'sql',
       [
         `create table ${schema}.${table} (`,
         sortedAttributes(attributes)
@@ -197,7 +201,11 @@ export class FsSchema {
         .map((l) => l.trim())
         .filter((l) => l)
         .join('\n');
-      this.outputFileSyncSafe(path.join(this.root, `${F_FOREIGN_KEY_PREFIX}${schema}.${table}.${fkName}.sql`), sql);
+      this.outputFileSyncSafe(
+        path.join(this.root, `${F_FOREIGN_KEY_PREFIX}${schema}.${table}.${fkName}.sql`),
+        'sql',
+        sql
+      );
     }
     return t;
   }
