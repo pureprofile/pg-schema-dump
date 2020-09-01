@@ -1,5 +1,5 @@
 import * as pg from 'pg';
-import { all, findAndShiftFunctionReferences } from './pg-helpers';
+import { all, findAndShiftFunctionReferences, pgQuoteStrings } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
 import { FsSchema } from './fs-schema';
@@ -18,7 +18,7 @@ const DEFAULT_FUNCTIONS_TO_SKIP: string[] = [];
 
 export class PgClient {
   private _clientConfig: pg.ClientConfig;
-  private _client: pg.Client;
+  private _client: pg.Client | null = null;
   private _logger: typeof log | null;
   private _skipSchemas: string[];
   private _skipFunctions: string[];
@@ -39,36 +39,51 @@ export class PgClient {
         ...config,
       };
     }
-    this._client = new pg.Client(this._clientConfig);
     this._logger = options.logger !== undefined ? options.logger : log;
     this._skipSchemas = DEFAULT_SCHEMAS_TO_SKIP.concat(options.skipSchemas || []);
     this._skipFunctions = DEFAULT_FUNCTIONS_TO_SKIP.concat(options.skipFunctions || []);
   }
 
-  connect() {
-    return this._client.connect();
+  async connect() {
+    if (!this._client) {
+      this._client = new pg.Client(this._clientConfig);
+      await this._client.connect();
+    }
   }
 
-  end() {
-    return this._client.end();
+  async end() {
+    if (this._client) {
+      await this._client.end();
+      this._client = null;
+    }
   }
 
-  query<T>(query: string) {
-    return this._client.query<T>(query);
+  async testConnection() {
+    await this.connect();
+    await this.end();
   }
 
-  getDatabases(): Promise<string[]> {
-    return this._client
-      .query<{
-        datname: string;
-      }>(`SELECT datname FROM pg_database`)
-      .then((res) => res.rows.map((row) => row.datname));
+  // wrapper around client.query that does not keep the connection open
+  async query<T>(query: string) {
+    await this.connect();
+    const result = await this._client!.query<T>(query);
+    await this.end();
+    return result;
+  }
+
+  async rows<T>(query: string) {
+    const result = await this.query<T>(query);
+    return result.rows;
+  }
+
+  async getDatabases(): Promise<string[]> {
+    const rows = await this.rows<{ datname: string }>(`SELECT datname FROM pg_database`);
+    return rows.map((row) => row.datname);
   }
 
   async getCurrentDatabase(): Promise<string> {
-    const result = await this._client.query<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
-    const dbName = result.rows[0].dbName;
-    return dbName;
+    const rows = await this.rows<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
+    return rows[0].dbName;
   }
 
   async databaseExists(db: string) {
@@ -77,18 +92,33 @@ export class PgClient {
   }
 
   createDatabase(db: string) {
-    return this._client.query(`CREATE DATABASE "${db}"`);
+    return this.query(`CREATE DATABASE "${db}"`);
   }
 
-  dropDatabase(db: string) {
-    return this._client.query(`DROP DATABASE "${db}"`);
+  async getConnections(db: string) {
+    return this.rows<{ pid: number }>(
+      `SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND pg_stat_activity.datname = '${db}'`
+    );
+  }
+
+  async dropConnections(db: string) {
+    const connections = await this.getConnections(db);
+    for (const c of connections) {
+      await this.query(`SELECT pg_terminate_backend(${c.pid})`);
+    }
+  }
+
+  async dropDatabase(db: string) {
+    await this.dropConnections(db);
+    return this.query(`DROP DATABASE "${db}"`);
   }
 
   async switchDatabase(db: string) {
+    // we need to end the old connection to the db before switch
     await this.end();
     this._clientConfig.database = db;
-    this._client = new pg.Client(this._clientConfig);
-    await this.connect();
+    // we test the connection to the new db immediatelly
+    await this.testConnection();
   }
 
   async ensureEmptyDb(db: string) {
@@ -106,6 +136,11 @@ export class PgClient {
 
     const skipSchemas = this._skipSchemas;
     const skipFunctions = this._skipFunctions;
+
+    await this.connect();
+    if (!this._client) {
+      throw new Error(`this.connect() should ensure client exists`);
+    }
     const [, , functions, indexes, sequences, tables, triggers, views] = await Promise.all([
       collectExtensions(this._client).then(all(fsSchema.writeExtension)),
       collectTypes(this._client).then(all(fsSchema.writeType)),
@@ -116,6 +151,7 @@ export class PgClient {
       collectTriggers(this._client, { skipSchemas }).then(all(fsSchema.writeTrigger)),
       collectViews(this._client, { skipSchemas }).then(all(fsSchema.writeView)),
     ] as const);
+    await this.end();
 
     const getSchema = <T extends { schema: string }>(arg: T) => arg.schema;
     uniq([
@@ -131,6 +167,7 @@ export class PgClient {
   }
 
   async restoreSchema({ src }: { src: string }) {
+    await this.connect();
     const fsSchema = new FsSchema(src, this._logger);
     this._logger?.info(`reading contents from: ${src}`);
     const fNames = await fsSchema.readDir();
@@ -145,7 +182,7 @@ export class PgClient {
       }
 
       try {
-        await this._client.query(fContents);
+        await this._client!.query(fContents);
         // remove the file if it was processed without error
         fNames.shift();
         // empty the fHasErrored array
@@ -163,5 +200,21 @@ export class PgClient {
       }
     }
     this._logger?.info(`all contents restored!`);
+    await this.end();
+  }
+
+  async truncateTables(db: string) {
+    await this.switchDatabase(db);
+    const tables = await this.rows<{
+      schemaname: string;
+      tablename: string;
+    }>(`
+      SELECT schemaname, tablename
+      FROM pg_tables
+      WHERE schemaname NOT IN (${pgQuoteStrings(this._skipSchemas)})
+      ORDER BY 1,2
+    `);
+    const sql = tables.map((t) => `TRUNCATE TABLE ${t.schemaname}.${t.tablename} CASCADE;`).join('\n');
+    await this.query(sql);
   }
 }
