@@ -1,6 +1,6 @@
 nodeLinker: hoisted
 allowBuilds:
   cpu-features: false
-  husky: true
+  lefthook: true
   protobufjs: false
   ssh2: false

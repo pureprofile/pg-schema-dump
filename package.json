@@ -23,6 +23,7 @@
   ],
   "scripts": {
     "start": "npm run build && node ./dist/bin.js",
+    "prepare": "is-ci || lefthook install --force --reset-hooks-path",
     "prepublishOnly": "npm run build && npm run eslint && npm run test",
     "build": "rimraf ./dist && tsc",
     "build-watch": "tsc --watch",
@@ -31,21 +32,6 @@
     "test:coverage": "vitest run --coverage",
     "test:unit": "vitest run --project unit",
     "test:e2e": "vitest run --project e2e"
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged",
-      "pre-push": "pnpm build && pnpm eslint && pnpm test"
-    }
-  },
-  "lint-staged": {
-    "*.{ts,tsx}": [
-      "eslint --ext=ts,tsx --fix",
-      "prettier --write"
-    ],
-    "*.{js,jsx,json}": [
-      "prettier --write"
-    ]
   },
   "eslintConfig": {
     "extends": "pureprofile",
@@ -76,8 +62,8 @@
     "@vitest/coverage-v8": "4.1.6",
     "eslint": "7.8.0",
     "eslint-config-pureprofile": "3.3.5",
-    "husky": "^4.2.5",
-    "lint-staged": "^10.2.13",
+    "is-ci": "^3.0.1",
+    "lefthook": "2.1.6",
     "prettier": "^2.1.1",
     "rimraf": "^3.0.2",
     "testcontainers": "11.14.0",
