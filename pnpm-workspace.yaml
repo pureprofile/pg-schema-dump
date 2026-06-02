@@ -1,0 +1,6 @@
+nodeLinker: hoisted
+allowBuilds:
+  cpu-features: false
+  lefthook: true
+  protobufjs: false
+  ssh2: false

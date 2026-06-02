@@ -1,4 +1,4 @@
-import { normalizedSrc, unquoted, quotedIfUnsafe, sortedAttributes } from '../fs-schema-helpers';
+import { normalizedSrc, unquoted, quotedIfUnsafe, sortedAttributes } from '../../src/fs-schema-helpers';
 
 test('normalizedSrc', () => {
   expect(normalizedSrc(null as any)).toBe(null);

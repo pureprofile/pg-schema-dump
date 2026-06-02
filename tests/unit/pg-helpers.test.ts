@@ -1,4 +1,4 @@
-import { sqlGetFunctionReferences } from '../pg-helpers';
+import { sqlGetFunctionReferences } from '../../src/pg-helpers';
 
 const tableSql = `
 create table my.table (
