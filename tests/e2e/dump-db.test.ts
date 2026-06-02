@@ -1,15 +1,23 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { PgClient } from '../pg-client';
+import { PgClient } from '../../src/pg-client';
 
 const TEST_DB_NAME = `pg-schema-dump-test`;
-const client = new PgClient({ host: 'localhost' }, { logger: null });
+const client = new PgClient(
+  {
+    host: process.env.TEST_DB_HOST,
+    port: Number(process.env.TEST_DB_PORT),
+    user: process.env.TEST_DB_USER,
+    password: process.env.TEST_DB_PASSWORD,
+  },
+  { logger: null }
+);
 
 afterAll(async () => {
   await client.end();
 });
 
-test('connect to the local postgres', async () => {
+test('connect to the postgres container', async () => {
   await client.connect();
 });
 

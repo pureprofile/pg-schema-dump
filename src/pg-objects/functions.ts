@@ -19,7 +19,7 @@ export async function collectFunctions(
       pg_get_functiondef(p.oid) AS "src"
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE p.proisagg = FALSE
+    WHERE p.prokind <> 'a'
       ${options.skipFunctions.length ? `AND p.proname NOT IN (${pgQuoteStrings(options.skipFunctions)})` : ``}
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
       AND probin IS NULL;

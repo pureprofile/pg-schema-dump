@@ -1,0 +1,46 @@
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm eslint
+      - run: pnpm test:coverage
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            {
+              echo "## Coverage"
+              echo "| Metric | % | Covered / Total |"
+              echo "|---|---|---|"
+              jq -r '.total | to_entries[] | "| \(.key) | \(.value.pct)% | \(.value.covered)/\(.value.total) |"' coverage/coverage-summary.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage/
+          retention-days: 14
