@@ -12,6 +12,7 @@
     "type": "git",
     "url": "git+https://github.com/pureprofile/pg-schema-dump.git"
   },
+  "packageManager": "pnpm@11.5.0",
   "main": "./dist/index.js",
   "bin": {
     "pg-schema-dump": "./dist/bin.js"
