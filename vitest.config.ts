@@ -8,6 +8,7 @@ export default defineConfig({
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['**/__tests__/**', '**/tests/**', 'src/bin.ts'],
       reportsDirectory: 'coverage',
+      thresholds: { lines: 90, statements: 90, functions: 90, perFile: false },
     },
     projects: [
       {
