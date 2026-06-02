@@ -2,6 +2,10 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import { PgClient } from '../../src/pg-client';
 
+// The tests in this file are intentionally sequential and stateful: each step
+// depends on side effects of the previous one (create → dump → restore → re-dump
+// → truncate). Vitest runs tests within a file in order; do not mark them concurrent.
+
 const SRC_DB = 'pgsd-rt-src';
 const DST_DB = 'pgsd-rt-dst';
 
@@ -55,6 +59,7 @@ test('create source db with rich schema', async () => {
 });
 
 test('dump source db and verify expected file prefixes present', async () => {
+  await client.switchDatabase(SRC_DB);
   await client.dumpSchema({ out: dumpDir1 });
 
   const files = fs.readdirSync(dumpDir1);
@@ -83,6 +88,7 @@ test('restore source dump into destination db', async () => {
 });
 
 test('re-dump destination and verify key objects are present', async () => {
+  await client.switchDatabase(DST_DB);
   await client.dumpSchema({ out: dumpDir2 });
 
   const files1 = fs.readdirSync(dumpDir1).sort();

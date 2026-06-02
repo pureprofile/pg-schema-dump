@@ -52,8 +52,9 @@ afterAll(async () => {
     await admin.dropDatabase(COLLECTORS_DB);
   } catch {
     // ignore
+  } finally {
+    await admin.end();
   }
-  await admin.end();
 });
 
 test('collectExtensions returns an array (may include pgcrypto)', async () => {

@@ -178,7 +178,7 @@ test('attributeSql: numeric + nextval seq → throws (no serial mapping)', () =>
       description: '',
       isPrimaryKey: false,
     })
-  ).toThrow();
+  ).toThrow(/serial mapping/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -350,7 +350,10 @@ test('writeTable: creates table file and fk file', () => {
   const noteIdx = colLines.findIndex((l) => l.includes('note'));
   expect(cityIdx).toBeLessThan(noteIdx);
 
-  // FK file exists with double .sql extension (that's how writeTable calls outputFileSyncSafe)
+  // FK file exists with a doubled .sql extension. This is a pre-existing quirk in
+  // writeTable (it passes a name already ending in `.sql` to outputFileSyncSafe, which
+  // appends another `.sql`), unlike every other write* method. Asserted as-is to lock in
+  // current behavior; changing the filename is a separate behavior change, out of scope here.
   const fkFile = path.join(tmp, 'fk.public.orders.city_id_fk.sql.sql');
   expect(fs.existsSync(fkFile)).toBe(true);
   const fkContent = fs.readFileSync(fkFile, 'utf8');
