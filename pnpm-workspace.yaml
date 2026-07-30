@@ -1,4 +1,27 @@
 nodeLinker: hoisted
+
+# Dependabot transitive-vuln overrides. Every alert in this repo is on a
+# development-scope transitive copy whose parent pins it, so a plain in-range
+# refresh cannot reach any of them. Each entry MUST carry a GHSA reference so
+# the carve-out can be dropped once the parent ships the patched version.
+overrides:
+  # GHSA-52cp-r559-cp3m (HIGH) + GHSA-h67p-54hq-rp68 (MED): js-yaml prototype
+  # pollution / unsafe type resolution, both fixed on the 3.x line in 3.15.0.
+  'js-yaml@>=3.0.0 <3.15.0': 3.15.0
+  # GHSA-vxpw-j846-p89q / GHSA-hm92-r4w5-c3mj / GHSA-vmh5-mc38-953g /
+  # GHSA-35p6-xmwp-9g52 / GHSA-g8m3-5g58-fq7m / GHSA-p88m-4jfj-68fv: undici
+  # request-smuggling and redirect/proxy-auth leaks (<7.28.0).
+  'undici@>=7.0.0 <7.28.0': 7.28.0
+  # GHSA-fx2h-pf6j-xcff (HIGH) + GHSA-v6wh-96g9-6wx3 (MED): vite
+  # server.fs.deny bypass on Windows alternate paths + launch-editor NTLMv2
+  # hash disclosure (>=8.0.0 <=8.0.15). Transitive via vitest.
+  'vite@>=8.0.0 <8.0.16': 8.0.16
+  # GHSA-3jxr-9vmj-r5cp: brace-expansion ReDoS spans two release lines here
+  # (1.1.15 and 2.1.1 are both installed). Patch each on its own major so no
+  # parent's declared range is crossed.
+  brace-expansion@1: 1.1.17
+  brace-expansion@2: 2.1.3
+
 allowBuilds:
   cpu-features: false
   lefthook: true
