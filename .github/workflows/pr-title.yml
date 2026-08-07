@@ -1,0 +1,57 @@
+name: PR Title
+
+# Squash is the only merge method on this repo and the squash subject is always
+# the PR title, so the PR title becomes the commit subject on main verbatim —
+# and release-please derives the next version from those subjects. A PR title
+# that is not a Conventional Commit therefore ships code that never releases,
+# which this check exists to catch before merge rather than after.
+#
+# See docs/release-please.md for the release process this protects.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+on:
+  # `pull_request`, not `pull_request_target`: this repo is public and allows
+  # forks, and the check only reads the title out of the event payload — it
+  # never checks out PR code, so it does not need base-repo privileges.
+  pull_request:
+    # `edited` matters: without it, fixing a rejected title would not re-run
+    # the check and it would stay red.
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Kept explicit rather than relying on the action's defaults: this is
+          # the enforcement point for the type table in docs/release-please.md,
+          # so the two should be read together.
+          types: |
+            feat
+            fix
+            perf
+            revert
+            chore
+            docs
+            test
+            ci
+            refactor
+            style
+            build
+          # No subjectPattern: the docs ask for lowercase imperative subjects,
+          # but proper nouns (Postgres, TypeScript) legitimately start a subject
+          # with a capital, and failing those would be noise.
+          #
+          # No validateSingleCommit either: it guards the case where GitHub
+          # pre-fills a single commit's message instead of the PR title, which
+          # cannot happen here — squash_merge_commit_title is set to PR_TITLE.

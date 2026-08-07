@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "last-release-sha": "33832d8e56c042f8bc08b3ee9d3355a59e7eaf33",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "@pureprofile/pg-schema-dump",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

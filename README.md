@@ -166,3 +166,11 @@ pnpm test:e2e       # e2e project only (requires Docker)
 - **pre-push** — `pnpm build`.
 
 CI runs build, lint, and the full test suite with coverage on every push and pull request to `main`.
+
+### Releases
+
+Releases are automated with [release-please](https://github.com/googleapis/release-please): merging to `main` opens a release PR, and merging that PR bumps the version, writes `CHANGELOG.md`, tags `vX.Y.Z`, creates the GitHub Release and publishes to npm.
+
+Because the version is derived from commit messages, **every commit must be a [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/)** — a non-conforming message never triggers a release. Squash is the only merge method and the squash subject is the PR title, so in practice the **PR title** is what matters; a `PR Title` check validates it on every pull request.
+
+See [docs/release-please.md](docs/release-please.md) for the full process, the type-to-bump table, and troubleshooting.

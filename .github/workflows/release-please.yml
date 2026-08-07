@@ -1,0 +1,65 @@
+name: Release Please
+
+concurrency: release_please
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  release-please:
+    # Releases are only ever cut from main. workflow_dispatch can target any
+    # branch, and without this guard such a run could tag, release and publish
+    # unreviewed code under this workflow's npm trusted-publisher identity.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release tag and GitHub Release
+      pull-requests: write # open and update the release PR
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      # The commit release-please actually tagged — the publish job builds from
+      # this, not from whatever ref triggered the run.
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      # Manifest mode: config-file and manifest-file default to
+      # release-please-config.json / .release-please-manifest.json, and token
+      # defaults to secrets.GITHUB_TOKEN — so no inputs are needed.
+      - uses: googleapis/release-please-action@v5
+        id: release
+
+  publish:
+    needs: release-please
+    # The ref check already gates the job above (and a skipped dependency skips
+    # this one), but it is repeated here so the OIDC-holding job states its own
+    # precondition rather than inheriting it.
+    if: github.ref == 'refs/heads/main' && needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # only needs to read the tagged source
+      id-token: write # OIDC token for npm trusted publishing
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+
+      - uses: pnpm/action-setup@v4
+
+      # v7 or newer is required: v6 exports a dummy NODE_AUTH_TOKEN whenever
+      # registry-url is set, which breaks the OIDC token exchange below.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      # No NODE_AUTH_TOKEN: trusted publishing exchanges this job's OIDC token,
+      # and provenance is attached automatically. npm runs prepublishOnly (see
+      # package.json) as the last gate before the tarball is uploaded.
+      - run: npm publish
