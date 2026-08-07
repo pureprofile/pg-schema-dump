@@ -47,6 +47,10 @@ beforeAll(async () => {
   // Owned by nothing, in no in-scope schema, named by no column default - the only
   // thing that mentions it is the trigger function's body.
   await admin.query(`CREATE SEQUENCE helpers.hidden_seq`);
+  // Named by an in-scope table's CHECK constraint and nothing else. Postgres does allow
+  // a volatile function there (unlike an expression index, which requires IMMUTABLE), so
+  // this is a legal way for a relation to depend on a sequence without a column default.
+  await admin.query(`CREATE SEQUENCE helpers.check_seq`);
 
   // inner_fn is reached only through outer_fn's body. Postgres records no dependency
   // between two plpgsql functions, so only the recursive text pass finds it.
@@ -70,7 +74,11 @@ beforeAll(async () => {
       state enums.item_state NOT NULL DEFAULT 'new',
       ticket bigint,
       doubled integer DEFAULT helpers.outer_fn(2),
-      region_id integer REFERENCES outside.region (id)
+      region_id integer REFERENCES outside.region (id),
+      guard bigint,
+      -- Left as NULL by every insert below, so the short-circuit keeps nextval out of the
+      -- way of the ticket assertions while the dependency still exists in the catalog.
+      CONSTRAINT item_guard_chk CHECK (guard IS NULL OR guard < nextval('helpers.check_seq'))
     )
   `);
   await admin.query(
@@ -129,6 +137,12 @@ test('keeps a function reached only from another in-scope function body', () => 
 
 test('keeps a sequence named only inside an in-scope function body', () => {
   expect(files).toContain('sequence.helpers.hidden_seq.sql');
+});
+
+test('keeps a sequence named only by an in-scope table constraint', () => {
+  // Not a column default, which is the one dependency path the sequence collector used
+  // to check. Without it the CHECK cannot be created and the table's own file fails.
+  expect(files).toContain('sequence.helpers.check_seq.sql');
 });
 
 test('keeps an enum used by an in-scope column but declared in an unnamed schema', () => {

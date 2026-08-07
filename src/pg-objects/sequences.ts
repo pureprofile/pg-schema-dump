@@ -15,7 +15,7 @@ export interface OwnedBy {
   table: string;
   column: string;
 }
-import { inScopeFunctionOidsSql } from './scope-sql';
+import { inScopeFunctionOidsSql, namedByInScopeRelationSql } from './scope-sql';
 
 export async function collectSequences(
   client: Client,
@@ -26,20 +26,23 @@ export async function collectSequences(
 ) {
   const skipSchemas = options.skipSchemas || [];
   const scope = options.scope || resolveScope();
-  // A sequence is in scope when its schema was opted into wholesale, when an
-  // in-scope table owns it, when an in-scope table's column default calls it, or
-  // when an in-scope function's body names it - a nextval() inside a trigger
-  // function is invisible to pg_depend, and the restore fails on the first insert
-  // that fires the trigger.
-  // That last case is not optional: plenty of legacy sequences have no owner and
-  // are reached only through a `default nextval(...)`, and dropping them makes
-  // the referencing CREATE TABLE fail. Using schemaPredicate instead would pull
-  // in every sequence in a schema just because one of its tables was named.
+  // A sequence is in scope when its schema was opted into wholesale, when an in-scope
+  // relation owns it, when an in-scope relation's own definition names it, or when an
+  // in-scope function's body names it.
+  //
+  // None of the last three is optional. Plenty of legacy sequences have no owner and are
+  // reached only through a `default nextval(...)`, and dropping one makes the referencing
+  // CREATE TABLE fail. A `nextval()` inside a trigger function is invisible to pg_depend
+  // altogether, and dropping that one fails nothing until the first insert that fires the
+  // trigger. Using the schema predicate instead of all this would pull in every sequence
+  // in a schema just because one of its tables was named.
   const scopeClause = scope.active
     ? `
       AND (
         ${scope.includedSchemaPredicate('n.nspname')}
         OR EXISTS (
+          -- Ownership runs the other way round to the walk below: the sequence is the
+          -- dependent object and the table it belongs to is the referenced one.
           SELECT 1
           FROM pg_depend dep
           JOIN pg_class rc ON rc.oid = dep.refobjid
@@ -50,16 +53,10 @@ export async function collectSequences(
             AND dep.deptype = 'a'
             AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
         )
-        OR EXISTS (
-          SELECT 1
-          FROM pg_depend dep
-          JOIN pg_attrdef ad ON ad.oid = dep.objid AND dep.classid = 'pg_attrdef'::regclass
-          JOIN pg_class rc ON rc.oid = ad.adrelid
-          JOIN pg_namespace rn ON rn.oid = rc.relnamespace
-          WHERE dep.refobjid = c.oid
-            AND dep.refclassid = 'pg_class'::regclass
-            AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
-        )
+        -- Any in-scope relation whose definition names the sequence, not just a column
+        -- default: a CHECK constraint, an expression index, a trigger WHEN clause and a
+        -- view body can each name one, and each fails just as hard without it.
+        OR ${namedByInScopeRelationSql(scope, { refClass: 'pg_class', refOid: 'c.oid' })}
         OR EXISTS (
           SELECT 1 FROM pg_proc fp
           WHERE fp.oid IN (${inScopeFunctionOidsSql(scope)})

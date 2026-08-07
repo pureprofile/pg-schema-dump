@@ -1,7 +1,30 @@
 import { Client } from 'pg';
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
-import { inScopeFunctionOidsSql } from './scope-sql';
+import { DEPENDABLE_RELATION_KINDS, inScopeFunctionOidsSql } from './scope-sql';
+
+/**
+ * FROM/JOIN chain for what the view `c` reads, out of one catalog.
+ *
+ * The three dependency subqueries below differ only in which catalog they land in and
+ * what they do with the result, so the walk itself is written once. Exposes `dep` plus
+ * either `dc`/`dn` (relations) or `fp`/`fn` (functions).
+ */
+function viewDependencyFromSql(refClass: 'pg_class' | 'pg_proc'): string {
+  const target =
+    refClass === 'pg_class'
+      ? `JOIN pg_class dc ON dc.oid = dep.refobjid
+         JOIN pg_namespace dn ON dn.oid = dc.relnamespace`
+      : `JOIN pg_proc fp ON fp.oid = dep.refobjid
+         JOIN pg_namespace fn ON fn.oid = fp.pronamespace`;
+  return `
+    FROM pg_rewrite rw
+    JOIN pg_depend dep ON dep.objid = rw.oid AND dep.classid = 'pg_rewrite'::regclass
+    ${target}
+    WHERE rw.ev_class = c.oid
+      AND dep.refclassid = '${refClass}'::regclass
+  `;
+}
 
 export interface View {
   schema: string;
@@ -60,25 +83,13 @@ export async function collectViews(
       (
         SELECT array_agg(DISTINCT cause) FROM (
           SELECT dn.nspname || '.' || dc.relname AS cause
-          FROM pg_rewrite rw
-          JOIN pg_depend dep ON dep.objid = rw.oid AND dep.classid = 'pg_rewrite'::regclass
-          JOIN pg_class dc ON dc.oid = dep.refobjid
-          JOIN pg_namespace dn ON dn.oid = dc.relnamespace
-          WHERE rw.ev_class = c.oid
-            AND dep.refclassid = 'pg_class'::regclass
+          ${viewDependencyFromSql('pg_class')}
             AND dep.refobjid <> c.oid
-            -- 'f' (foreign table) counts too: it is not dumped, so a view reading one
-            -- is no more restorable than a view reading an out-of-scope table.
-            AND dc.relkind IN ('r','m','p','S','f')
+            AND dc.relkind IN (${DEPENDABLE_RELATION_KINDS})
             AND NOT (${scope.tablePredicate('dn.nspname', 'dc.relname')})
           UNION ALL
           SELECT fn.nspname || '.' || fp.proname AS cause
-          FROM pg_rewrite rw
-          JOIN pg_depend dep ON dep.objid = rw.oid AND dep.classid = 'pg_rewrite'::regclass
-          JOIN pg_proc fp ON fp.oid = dep.refobjid
-          JOIN pg_namespace fn ON fn.oid = fp.pronamespace
-          WHERE rw.ev_class = c.oid
-            AND dep.refclassid = 'pg_proc'::regclass
+          ${viewDependencyFromSql('pg_proc')}
             AND fn.nspname NOT IN ('pg_catalog', 'information_schema')
             ${skipSchemas.length ? `AND fn.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``}
             AND fp.oid NOT IN (${inScopeFunctionOidsSql(scope)})
@@ -86,12 +97,7 @@ export async function collectViews(
       ) AS "missing",
       (
         SELECT array_agg(DISTINCT dn.nspname || '.' || dc.relname)
-        FROM pg_rewrite rw
-        JOIN pg_depend dep ON dep.objid = rw.oid AND dep.classid = 'pg_rewrite'::regclass
-        JOIN pg_class dc ON dc.oid = dep.refobjid
-        JOIN pg_namespace dn ON dn.oid = dc.relnamespace
-        WHERE rw.ev_class = c.oid
-          AND dep.refclassid = 'pg_class'::regclass
+        ${viewDependencyFromSql('pg_class')}
           AND dep.refobjid <> c.oid
           AND dc.relkind = 'v'
           -- Only views this collector could itself return. A catalog view, a view in a
