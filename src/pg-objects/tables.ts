@@ -1,5 +1,5 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export interface Attribute {
@@ -117,6 +117,7 @@ export async function collectTables(
     left join pg_catalog.pg_namespace n on
       n.oid = c.relnamespace
     WHERE c.relkind = 'r'
+      AND ${notExtensionOwned('pg_class', 'c.oid')}
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
       AND ${scope.tablePredicate('n.nspname', 'c.relname')}
     ORDER BY 2, 3

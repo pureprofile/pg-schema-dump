@@ -77,6 +77,52 @@ test('reports every unapplied file with its own error instead of only the last',
   expect(rows[0].count).toBe('1');
 });
 
+test('keeps a unique index that only a foreign key on another table depends on', async () => {
+  // pg_constraint.conindid is set on FOREIGN KEY constraints too, pointing at the
+  // index on the *referenced* table. Excluding every index named by some
+  // constraint's conindid therefore dropped plain unique indexes that foreign
+  // keys rely on, and the restore failed with "there is no unique constraint
+  // matching given keys for referenced table".
+  const src = 'pgsd-uqidx-src';
+  const dst = 'pgsd-uqidx-dst';
+  const dir = path.resolve(process.cwd(), '__temp__', src);
+
+  try {
+    await client.switchDatabase('postgres');
+    await client.ensureEmptyDb(src);
+    await client.query(`CREATE TABLE country (id bigserial primary key, code varchar(10) not null)`);
+    // uniqueness via a bare index, not a UNIQUE constraint
+    await client.query(`CREATE UNIQUE INDEX country_code_idx ON country (code)`);
+    await client.query(`CREATE TABLE token (id bigserial primary key, country_code varchar(10),
+      CONSTRAINT tok_coun_fk FOREIGN KEY (country_code) REFERENCES country(code))`);
+
+    await client.switchDatabase(src);
+    await client.dumpSchema({ out: dir });
+
+    const countryFile = fs.readFileSync(path.join(dir, 'table.public.country.sql'), 'utf8');
+    expect(countryFile).toContain('country_code_idx');
+    // the primary key's own index is still excluded, since the constraint recreates it
+    expect(countryFile).not.toContain('CREATE UNIQUE INDEX IF NOT EXISTS country_pkey');
+
+    await client.switchDatabase('postgres');
+    await client.ensureEmptyDb(dst);
+    await client.restoreSchema({ src: dir });
+  } finally {
+    try {
+      await client.switchDatabase('postgres');
+      await client.dropDatabase(src);
+    } catch {
+      // ignore
+    }
+    try {
+      await client.dropDatabase(dst);
+    } catch {
+      // ignore
+    }
+    fs.removeSync(dir);
+  }
+});
+
 test('function bodies may reference tables that do not exist yet', async () => {
   // Functions restore before tables, so check_function_bodies must be off.
   fs.outputFileSync(

@@ -252,6 +252,11 @@ export class PgClient {
       return;
     }
 
+    // The report is only about objects a dump could have contained, so it has to
+    // honour skipSchemas - otherwise it buzzes about pg_catalog's own views.
+    const skipClause = (nspCol: string) =>
+      this._skipSchemas.length ? `AND ${nspCol} NOT IN (${pgQuoteStrings(this._skipSchemas)})` : ``;
+
     const droppedFks = await this._client.query<{ column: string; target: string }>(`
       SELECT
         (sn.nspname || '.' || sc.relname || '.' || sa.attname) AS "column",
@@ -266,6 +271,7 @@ export class PgClient {
         AND array_length(r.confkey, 1) = 1
         AND ${scope.tablePredicate('sn.nspname', 'sc.relname')}
         AND NOT (${scope.tablePredicate('tn.nspname', 'tc.relname')})
+        ${skipClause('sn.nspname')}
     `);
     for (const row of droppedFks.rows) {
       this._logger?.warn(`scope: dropped FK ${row.column} -> ${row.target} (target out of scope)`);
@@ -286,6 +292,7 @@ export class PgClient {
         AND dep.refobjid <> c.oid
         AND dc.relkind IN ('r','v','m','p')
         AND NOT (${scope.tablePredicate('dn.nspname', 'dc.relname')})
+        ${skipClause('n.nspname')}
     `);
     for (const row of excludedViews.rows) {
       this._logger?.warn(`scope: excluded view ${row.view} (depends on out-of-scope relation ${row.cause})`);

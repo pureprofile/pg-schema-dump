@@ -15,6 +15,16 @@ export interface ResolvedScope {
   /** SQL boolean: is a schema in scope (in includeSchemas, or owns >=1 included table)? */
   schemaPredicate(nspCol: string): string;
 
+  /**
+   * SQL boolean: was this schema opted into *wholesale* via includeSchemas?
+   *
+   * Distinct from schemaPredicate, which is also true for a schema merely
+   * containing one included table. Objects that belong to a specific table -
+   * sequences above all - must use this, or naming a single table pulls in every
+   * sequence in its schema.
+   */
+  includedSchemaPredicate(nspCol: string): string;
+
   /** SQL boolean for the includeFunctions escape hatch. Returns 'false' when empty. */
   functionPredicate(nspCol: string, proCol: string): string;
 }
@@ -52,6 +62,15 @@ export function resolveScope(options?: ScopeOptions): ResolvedScope {
         return 'false';
       }
       return `(${disjuncts.join(' OR ')})`;
+    },
+    includedSchemaPredicate(nspCol: string): string {
+      if (!active) {
+        return 'true';
+      }
+      if (includeSchemas.length === 0) {
+        return 'false';
+      }
+      return `(${nspCol} = ANY(${textArray(includeSchemas)}))`;
     },
     schemaPredicate(nspCol: string): string {
       if (!active) {

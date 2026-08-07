@@ -1,5 +1,5 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export type ConstraintType = 'p' | 'u' | 'c' | 'x' | 'f';
@@ -21,6 +21,7 @@ export async function collectConstraints(
   const clauses = [
     `con.contype IN ('p','u','c','x','f')`,
     `c.relkind IN ('r','p')`,
+    notExtensionOwned('pg_class', 'c.oid'),
     `NOT con.conislocal IS FALSE`, // skip constraints merely inherited from a parent
     skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``,
     scope.tablePredicate('n.nspname', 'c.relname'),

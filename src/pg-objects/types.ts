@@ -1,11 +1,12 @@
 import { Client } from 'pg';
-import { pgStringArray, pgQuoteString, pgQuoteStrings } from '../pg-helpers';
+import { pgStringArray, pgQuoteString, pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export async function collectTypes(client: Client, options: { skipSchemas?: string[]; scope?: ResolvedScope } = {}) {
   const skipSchemas = options.skipSchemas || [];
   const scope = options.scope || resolveScope();
   const clauses = [
+    notExtensionOwned('pg_type', 't.oid'),
     skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``,
     scope.schemaPredicate('n.nspname'),
   ].filter((clause) => clause);

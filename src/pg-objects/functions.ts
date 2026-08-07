@@ -1,5 +1,5 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export async function collectFunctions(
@@ -42,6 +42,7 @@ export async function collectFunctions(
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE p.prokind <> 'a'
+      AND ${notExtensionOwned('pg_proc', 'p.oid')}
       ${options.skipFunctions.length ? `AND p.proname NOT IN (${pgQuoteStrings(options.skipFunctions)})` : ``}
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
       AND probin IS NULL

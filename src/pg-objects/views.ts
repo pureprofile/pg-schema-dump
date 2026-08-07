@@ -1,5 +1,5 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export async function collectViews(
@@ -12,6 +12,7 @@ export async function collectViews(
   const scope = options.scope || resolveScope();
   const clauses = [
     `c.relkind = 'v'`,
+    notExtensionOwned('pg_class', 'c.oid'),
     options.skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``,
     `NOT EXISTS (
       SELECT 1

@@ -1,5 +1,5 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export async function collectSequences(
@@ -11,20 +11,35 @@ export async function collectSequences(
 ) {
   const skipSchemas = options.skipSchemas || [];
   const scope = options.scope || resolveScope();
+  // A sequence is in scope when its schema was opted into wholesale, when an
+  // in-scope table owns it, or when an in-scope table's column default calls it.
+  // That last case is not optional: plenty of legacy sequences have no owner and
+  // are reached only through a `default nextval(...)`, and dropping them makes
+  // the referencing CREATE TABLE fail. Using schemaPredicate instead would pull
+  // in every sequence in a schema just because one of its tables was named.
   const scopeClause = scope.active
     ? `
       AND (
-        ${scope.schemaPredicate('n.nspname')}
+        ${scope.includedSchemaPredicate('n.nspname')}
         OR EXISTS (
           SELECT 1
           FROM pg_depend dep
-          JOIN pg_attribute a ON a.attrelid = dep.refobjid AND a.attnum = dep.refobjsubid
           JOIN pg_class rc ON rc.oid = dep.refobjid
           JOIN pg_namespace rn ON rn.oid = rc.relnamespace
           WHERE dep.objid = c.oid
             AND dep.classid = 'pg_class'::regclass
             AND dep.refclassid = 'pg_class'::regclass
             AND dep.deptype = 'a'
+            AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM pg_depend dep
+          JOIN pg_attrdef ad ON ad.oid = dep.objid AND dep.classid = 'pg_attrdef'::regclass
+          JOIN pg_class rc ON rc.oid = ad.adrelid
+          JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+          WHERE dep.refobjid = c.oid
+            AND dep.refclassid = 'pg_class'::regclass
             AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
         )
       )
@@ -63,6 +78,7 @@ export async function collectSequences(
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_sequence s ON s.seqrelid = c.oid
     WHERE c.relkind = 'S'
+      AND ${notExtensionOwned('pg_class', 'c.oid')}
       ${skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``}
       ${scopeClause}
   `);

@@ -1,5 +1,5 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export async function collectIndexes(
@@ -11,8 +11,19 @@ export async function collectIndexes(
 ) {
   const scope = options.scope || resolveScope();
   const clauses = [
-    `NOT EXISTS (SELECT 1 FROM pg_constraint con WHERE con.conindid = i.indexrelid)`,
+    // Skip indexes that a constraint creates implicitly: emitting both the
+    // constraint and this index would create the same index twice. Only PRIMARY
+    // KEY, UNIQUE and EXCLUDE constraints own an index that way. A FOREIGN KEY
+    // also populates conindid, but pointing at the index on the *referenced*
+    // table, which it merely uses - excluding those would drop indexes that
+    // foreign keys elsewhere depend on, and the restore then fails with
+    // "there is no unique constraint matching given keys".
+    `NOT EXISTS (
+      SELECT 1 FROM pg_constraint con
+      WHERE con.conindid = i.indexrelid AND con.contype IN ('p','u','x')
+    )`,
     `c.relkind IN ('r','p')`,
+    notExtensionOwned('pg_class', 'c.oid'),
     options.skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``,
     scope.tablePredicate('n.nspname', 'c.relname'),
   ].filter((clause) => clause);
