@@ -33,7 +33,7 @@ export async function collectTriggers(
       -- their table's file, so a trigger on anything else - an INSTEAD OF trigger on a
       -- view, a trigger on a partitioned parent - has no file to be written into and
       -- was silently discarded after being collected. Excluding it here makes that a
-      -- stated limitation instead of a quiet loss. See README's Known gaps.
+      -- stated limitation instead of a quiet loss. See README's Limitations.
       AND c.relkind = 'r'
       AND ${notExtensionOwned('pg_class', 'c.oid')}
       -- An extension may own a trigger on an ordinary table and recreate it itself,
