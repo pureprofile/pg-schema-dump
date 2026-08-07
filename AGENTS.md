@@ -43,10 +43,50 @@ Commit message _format_ is a separate, equally hard requirement, and is covered 
 - `pnpm test` — vitest, both projects (`unit` + `e2e`). `prepublishOnly` runs `build` → `eslint` → `test`.
 - `npm run eslint` — lint `./src` (`--ext=ts,tsx`).
 - `pnpm test:unit` — pure helper tests, no database needed. `pnpm test:e2e` — needs Docker.
+- `pnpm test:coverage` — what CI actually runs. [vitest.config.ts](vitest.config.ts) gates coverage at **90%** lines/statements/functions. The gate is on the aggregate across `src` (`perFile: false`, `src/bin.ts` excluded, no branch threshold), so it is a floor against erosion, not a per-change standard — a small untested addition can slip under it on the totals. Run this before pushing; `pnpm test` alone will not tell you.
 - Run a single test: `pnpm exec vitest run tests/e2e/dump-db.test.ts` (add `-t "<name>"` to filter).
 - `npm start` — build then run the CLI against `dist/bin.js`.
 
 CLI usage: `pg-schema-dump --url postgres://user:pass@host/db --out ./dir`. Without `--out`, output goes to `pg-schema-dump/<NODE_ENV>/<dbName>`.
+
+## Every change lands through a pull request
+
+Work on a branch and merge through a PR. **Never commit directly to `main`.** This is not merely
+convention: `main` has no branch protection ([docs/release-please.md](docs/release-please.md) §3),
+so a direct push is technically possible — and it is the one path that reaches `main` with the
+subject unchecked. The release workflow still runs, so a direct push with a conventional subject
+does release normally; the risk is the other case, where a non-conventional subject that the `PR
+Title` check would have rejected lands instead, and release-please silently parses nothing from it.
+
+Two existing rules govern a PR here:
+
+- **No tracker reference** in the branch name, PR title, or PR body — anywhere, not even in a
+  footer. See [No tracker references](#no-tracker-references).
+- **The PR title specifically must be a Conventional Commit**, because squash is the only merge
+  method and the title becomes the commit subject verbatim — see
+  [Releases](#releases--conventional-commits-are-mandatory). This constrains the title only; branch
+  names and PR bodies are free-form (subject to the rule above). Pick the type from what the change
+  actually ships: a PR that adds to the public API is a `feat:` even when most of its diff is prose.
+
+### Documentation is part of the change, not a follow-up
+
+Update the documentation a change invalidates **in the same PR**. Two triggers, each of which has
+already produced stale docs here:
+
+- **A change to the public API updates the [README](README.md).** `dumpSchema`'s `DumpOmissions`
+  return shipped in v2.0.0 undocumented, and the type was not even exported — a whole major version
+  where callers could not see or name what the function gave back.
+- **A change to the release process or a workflow updates [docs/release-please.md](docs/release-please.md).**
+  It is declared the source of truth for that topic, so nothing else contradicts it when it drifts;
+  it went a whole release cycle still describing the repo as having never cut an automated one.
+
+Also update this file when a change alters the architecture, the commands, or a convention
+described above.
+
+This licence covers hand-written documentation only — `README.md`, `AGENTS.md` and `docs/`. It does
+**not** extend to `CHANGELOG.md`, `package.json`'s `version` or `.release-please-manifest.json`,
+which release-please owns and which must never be hand-edited (see
+[Releases](#releases--conventional-commits-are-mandatory)).
 
 ## Releases — Conventional Commits are mandatory
 
@@ -65,11 +105,21 @@ The `e2e` project (`tests/e2e/`) starts an ephemeral Postgres via Testcontainers
 `TEST_DB_USER` / `TEST_DB_PASSWORD`) to run against an existing instance instead.
 The unit tests (`tests/unit/`) are pure and need no database.
 
+`tests/vitest.global-setup.ts` starts **one** `postgres:16-alpine` container for the whole
+e2e project and exports its coordinates as those same env vars. The project runs
+`pool: 'forks'` with `singleFork: true` and `fileParallelism: false`, so every e2e test
+shares that one instance: a new test must create and drop its own database (`ensureEmptyDb`)
+rather than assuming an isolated server, and must not leave global state behind. The
+container image also bounds what is testable — a feature that needs a newer Postgres needs
+that pin raised first.
+
 ## Architecture
 
 Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by `PgClient.dumpSchema`.
 
-- `src/pg-client.ts` — `PgClient`, the single public export (`src/index.ts` re-exports only this). Holds connection config (parses a URL via `pg-connection-string`, or takes a `pg.ClientConfig`). Key design point: **connections are not kept open** — `query()` does `connect → query → end` each call (see commit `v1.1.0`). `dumpSchema` is the exception: it opens one connection, runs all collectors in a single `Promise.all`, then ends. Also provides DB lifecycle helpers used by tests and consumers (`ensureEmptyDb`, `switchDatabase`, `dropDatabase`, `truncateTables`, `restoreSchema`).
+- `src/index.ts` — the entire public surface: the `PgClient` class and the `DumpOmissions` type it returns. Nothing else is re-exported, so anything a consumer needs to name must be added here deliberately.
+- `src/bin.ts` — the CLI entrypoint (`#!/usr/bin/env node`); one of the two ways a scope arrives from outside, the other being the `scope` constructor option a library caller passes. yargs defines `--url` (required), `--out`, `--scope-file` and the repeatable `--include-schema` / `--include-table` / `--include-function`; a manifest read by `loadScopeFile` is combined with those flags by `mergeScope`, the result goes through `validateScope`, and only then is `PgClient` constructed. The `--out` default resolves `current_database()` over a throwaway `pg.Client` first. Excluded from coverage, so logic worth testing belongs in a module it calls rather than here.
+- `src/pg-client.ts` — `PgClient`. Holds connection config (parses a URL via `pg-connection-string`, or takes a `pg.ClientConfig`). Key design point: **connections are not kept open** — `query()` does `connect → query → end` each call (see commit `v1.1.0`). `dumpSchema` is the exception: it opens one connection, runs all collectors in a single `Promise.all`, then ends. It returns a `DumpOmissions` (`{ droppedForeignKeys, excludedViews }`) as well as logging it, because `logger: null` is supported and a scope that silently dropped an FK is the costliest failure to find late — a new kind of omission belongs in that return value, not only in a log line. Also provides DB lifecycle helpers used by tests and consumers (`ensureEmptyDb`, `switchDatabase`, `dropDatabase`, `truncateTables`, `restoreSchema`).
 - `src/pg-objects/*.ts` — one `collect<Object>(client, opts)` per object kind (extensions, types, functions, indexes, sequences, tables, triggers, views, constraints). Each runs a raw `pg_catalog` query and returns plain rows. `tables.ts` builds each column via nested `jsonb_build_object` in SQL. Constraint and index DDL is **not** hand-assembled — `pg_get_constraintdef` / `pg_get_indexdef` produce it. To add/change what's captured, edit the relevant collector's query.
 - `src/pg-objects/scope-sql.ts` — **all shared scope SQL. Nothing here may be restated in a collector.** Two rounds of review found bugs that were exactly a collector hand-rolling its own variant of one of these and getting it subtly wrong, so if a collector needs one of these questions answered, it calls the function:
   - `dependencyOwnerFromSql()` — resolves a `pg_depend` row to the relation whose definition carries the dependency. Each dependent class (`pg_attrdef`, `pg_constraint`, `pg_rewrite`, `pg_trigger`, `pg_index`) keeps its owning relation in a different column, so this is a five-way join that must be identical everywhere. Exposes `dpd`, `dep_owner`, `dep_owner_ns`.
@@ -77,7 +127,7 @@ Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by 
   - `dependencyOwnerInScopeSql(scope)` — the predicate on that resolved owner, including the viable-view branch that breaks the view/function circularity.
   - `viewReadsOnlyInScopeRelationsSql(scope, relOid)` and `DEPENDABLE_RELATION_KINDS` — one definition of "a relation the scope decides", so `views.ts` and the seed cannot disagree about, say, whether a foreign table counts.
   - `inScopeFunctionOidsSql(scope)` — "which functions does this scope reach": the seed above plus the `includeFunctions` escape hatch, then the function-to-function closure. `functions.ts`, `sequences.ts`, `types.ts` and `views.ts` all defer to it.
-- `src/scope.ts` / `src/scope-file.ts` — `ScopeOptions` → `ResolvedScope` (SQL predicates; every one self-parenthesizes). `scope-file.ts` loads and **validates** the JSON manifest, and `validateScope` is applied to CLI flags too, so a malformed `schema.table` entry is an error rather than a silently empty dump.
+- `src/scope.ts` / `src/scope-file.ts` — `ScopeOptions` → `ResolvedScope` (SQL predicates; every one self-parenthesizes). `scope-file.ts` loads and **validates** the JSON manifest (`loadScopeFile`), unions a manifest with CLI flags (`mergeScope`), and checks the result (`validateScope`). `validateScope` runs at all three boundaries — manifest, CLI flags, and the `scope` constructor option — so a malformed `schema.table` entry is an error rather than a silently empty dump.
 - `src/fs-schema.ts` — `FsSchema`, the file writer, plus `RESTORE_ORDER`. One `write<Object>` method per object kind, each prefixed by the `F_*_PREFIX` constants. `clean()` empties the output dir first. `writeTable` emits **one file per table** carrying its columns, its non-FK constraints, its owned sequences' `OWNED BY`, its indexes and its triggers; `writeForeignKeys` emits that table's FKs separately, since those must wait until every table exists. `outputFileSyncSafe` de-duplicates name collisions by appending `.v2`, `.v3`, ….
 - `src/pg-helpers.ts` — SQL/array helpers: `pgQuoteString`/`pgQuoteStrings` (escaping — every user-supplied value must go through these), `pgStringArray`, and `notExtensionOwned` (excludes objects an extension owns, which the extension recreates itself).
 - `src/fs-schema-helpers.ts` — SQL normalization for diffability: `normalizedSrc`, `unquoted`, `sortedAttributes` (deterministic column ordering), and `quoteIdent`/`quoteQualified`, which **every** emitted identifier must go through. Hand-quoting is how a mixed-case name silently folds and a name containing a quote character escapes its own identifier.
@@ -92,7 +142,7 @@ Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by 
    - **every table before any foreign key**, so FK cycles between tables restore cleanly;
    - indexes and triggers inline in the table file, which is safe precisely because functions already exist by then.
 
-   `restoreSchema` still requeues a failing file (chained views can need a second pass) and gives up once a full cycle makes no progress, reporting **every** unapplied file with its own error. It deliberately does not wrap the restore in a transaction — a failed statement would poison it, which is incompatible with requeueing.
+   `restoreSchema` still requeues a failing file — as many times as the queue comes round, not once; a chain of views can need several — and gives up only once a full cycle makes no progress, reporting **every** unapplied file with its own error. It deliberately does not wrap the restore in a transaction — a failed statement would poison it, which is incompatible with requeueing.
 
 ## Conventions
 
@@ -101,4 +151,5 @@ Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by 
 - Adding a new object kind that gets **its own file** means four coordinated edits: a `collect*` in `src/pg-objects/`, a `write*` + `F_*_PREFIX` in `fs-schema.ts`, that prefix placed in `RESTORE_ORDER`, and a line in `dumpSchema`'s `Promise.all`. A prefix missing from `RESTORE_ORDER` sorts last, which usually still works but only by luck.
 - Adding one that belongs **to a table** (like indexes, triggers or non-FK constraints) instead means collecting it, grouping it by `schema.table` in `dumpSchema`, and emitting it from `writeTable` in a sorted order.
 - Every collector must honour the scope. A collector that ignores it silently widens a scoped dump back out to the whole database.
+- **Dependency vulnerabilities: read [pnpm-workspace.yaml](pnpm-workspace.yaml) before acting on a Dependabot alert.** Its `overrides` block is the carve-out list for transitive vulnerabilities no in-range refresh can reach, and it carries the policy in comments: prefer bumping the parent over adding an entry, every entry must cite its GHSA, and an entry is deleted once the parent ships the fix. An override that forces a version its parent never declared is a standing compatibility risk, so adding one is the last resort, not the first move.
 - Commit messages must be Conventional Commits — releases are derived from them. See [Releases](#releases--conventional-commits-are-mandatory) and [docs/release-please.md](docs/release-please.md).

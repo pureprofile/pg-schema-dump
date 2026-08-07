@@ -25,9 +25,9 @@ sits there unreleased. That is the one failure mode to internalise.
 Releases up to `v1.1.0` were a manual ritual: hand-edit `version` in
 `package.json`, commit it as `v1.1.0: rewrite to not keep open connections`, push
 a tag by hand, then run `npm publish` from a laptop. The results show the cost —
-there is no `CHANGELOG.md` in the repo's history, and none of `v1.0.0` … `v1.1.0`
-has a GitHub Release, so there is no published record of what changed in any
-version.
+the repo had no changelog at all until automation generated one, and none of
+`v1.0.0` … `v1.1.0` has a GitHub Release, so for those versions there is still no
+published record of what changed.
 
 release-please replaces all of that with one input (the commit message) and one
 decision point (merging the release PR).
@@ -222,21 +222,26 @@ the npm name, used in the changelog and release titles. `include-component-in-ta
 is **`false`**, which matters: manifest mode defaults it to `true`, which would
 produce `pg-schema-dump-v1.2.0` tags instead of the `v1.2.0` format the repo has
 used since `v1.0.0`. `last-release-sha` is pinned to
-`33832d8e56c042f8bc08b3ee9d3355a59e7eaf33`, the commit tagged `v1.1.0`: it stops
-the commit scan there so the first changelog covers only post-`v1.1.0` work
-instead of reaching back over the entire history.
+`33832d8e56c042f8bc08b3ee9d3355a59e7eaf33`, the commit tagged `v1.1.0`: it bounded
+the scan for the **first** automated release (`v2.0.0`) so its changelog covered
+only post-`v1.1.0` work instead of reaching back over the entire history. It is
+inert now — every release since keys off the release tags release-please created
+itself — but removing it would let a future full-history scan reach back past
+`v1.1.0` again, so it stays.
 
 **[`.release-please-manifest.json`](../.release-please-manifest.json)** — the
-recorded current version, `1.1.0`, matching `package.json`. Its presence is what
+recorded current version, `2.0.0`, matching `package.json`. Its presence is what
 puts release-please in **manifest mode**, and that is deliberate: in the simpler
 `release-type` input mode, release-please discovers the last version from GitHub
 _Releases_, and this repo's pre-automation tags have none — so it could
 mis-derive the starting version. The manifest makes it explicit and deterministic.
 release-please rewrites this file in each release PR.
 
-**`CHANGELOG.md`** (generated on the first release) — grouped by the changelog
-sections in the table above, newest version first, with links to each commit and
-PR. It is a build artifact of the commit history, not a document anyone writes.
+**`CHANGELOG.md`** — grouped by the changelog sections in the table above, newest
+version first, each entry linking back to the pull request or commit it came from.
+It is a build artifact of the commit history, not a document anyone writes;
+release-please created it with the `v2.0.0` release and prepends a section to it on
+every release since.
 
 ## 6. Files release-please owns — never hand-edit
 
@@ -279,9 +284,12 @@ Publishing uses **npm [trusted publishing](https://docs.npmjs.com/trusted-publis
   [`.nvmrc`](../.nvmrc) (`24`), and current 24.x releases bundle npm 11.17.0, so
   this is satisfied — but note Node 24.0.0 itself shipped npm 11.3.0, below the
   floor. See [Troubleshooting](#10-troubleshooting) if it ever regresses.
-- **`actions/setup-node` must be v7 or newer.** v6 exports a dummy
-  `NODE_AUTH_TOKEN` whenever `registry-url` is set, which makes npm attempt token
-  auth and fail instead of using OIDC.
+- **`actions/setup-node` must be v7 or newer _in the `publish` job_.** v6 exports a
+  dummy `NODE_AUTH_TOKEN` whenever `registry-url` is set, which makes npm attempt
+  token auth and fail instead of using OIDC. The rule is specific to that trigger:
+  [`ci.yml`](../.github/workflows/ci.yml) sets no `registry-url` and never
+  publishes, so its `setup-node` version is unconstrained by this — do not "fix"
+  it to match.
 
 **The `prepublishOnly` gate.** `npm publish` runs the `prepublishOnly` script from
 [`package.json`](../package.json) — currently `build` → `eslint` → `test`, where
@@ -305,7 +313,7 @@ version. Do not delete or move the tag, and do not expect a re-run to fix it (se
   ```
   chore: refresh dependency overrides
 
-  Release-As: 1.1.1
+  Release-As: 2.0.1
   ```
 
   A PR title cannot carry a footer, so put it in a **commit message on the branch**
@@ -341,10 +349,13 @@ version. Do not delete or move the tag, and do not expect a re-run to fix it (se
 - **Only one release run at a time.** `concurrency: release_please` (no
   `cancel-in-progress`) serialises runs so two pushes cannot race on the tag or the
   release PR.
-- **The first release PR is not immediate.** The commits already on `main` after
-  `v1.1.0` are all `chore`/`test`/`docs`, so nothing releasable exists yet. The
-  first release PR appears when a `fix:`/`feat:`/`revert:`/breaking commit lands —
-  or immediately, if you use a `Release-As:` footer per
+- **A release PR is not immediate.** Nothing _opens_ one until a releasing commit
+  lands, so a run of `chore`/`test`/`docs`/`ci` merges with no release PR already
+  open leaves `main` with none, and no error — that is the expected state, not a
+  broken pipeline. (If a release PR is already open, those merges do not close it;
+  they are folded into it as part of the range, without changing the version it
+  proposes.) The PR opens when a `fix:`/`feat:`/`revert:`/breaking commit lands, or
+  immediately if you use a `Release-As:` footer per
   [How to force a release](#8-how-to-force-a-release).
 - **Releases only ever come from `main`.** Both jobs carry
   `if: github.ref == 'refs/heads/main'`, so a `workflow_dispatch` aimed at a feature

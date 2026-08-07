@@ -42,7 +42,7 @@ pg-schema-dump --url <connection-string> [--out <dir>] [scope options]
 
 When `--out` is omitted, output goes to `pg-schema-dump/<NODE_ENV>/<dbName>` (where `NODE_ENV` defaults to `development` and `dbName` is read from the connection).
 
-With no scope options the whole database is dumped, exactly as before.
+With no scope options the whole database is dumped.
 
 ### Examples
 
@@ -141,15 +141,53 @@ new PgClient(config, {
 });
 ```
 
+### What a dump reports
+
+`dumpSchema` resolves to a `DumpOmissions` describing what the dump left out.
+
+```ts
+import { PgClient } from '@pureprofile/pg-schema-dump';
+import type { DumpOmissions } from '@pureprofile/pg-schema-dump';
+
+const client = new PgClient('postgres://user:pass@localhost/mydb', {
+  scope: { includeTables: ['public.orders'] },
+});
+
+const omissions: DumpOmissions = await client.dumpSchema({ out: './schema/mydb' });
+
+for (const fk of omissions.droppedForeignKeys) {
+  // { schema, table, name, target } — `target` is the out-of-scope 'schema.table' it pointed at
+  console.warn(`dropped ${fk.schema}.${fk.table}.${fk.name} -> ${fk.target}`);
+}
+for (const view of omissions.excludedViews) {
+  // { view, cause } — `cause` is a 'schema.name' the view reads that the dump does not contain
+  console.warn(`excluded ${view.view} (needs ${view.cause})`);
+}
+```
+
+Two caveats on reading these:
+
+- **`cause` is the missing dependency, not necessarily the root of the problem.** Excluding one
+  view excludes whatever is built on top of it, and a view dropped that way reports the excluded
+  view it reads — so following a chain may take more than one step.
+- **`droppedForeignKeys` is always empty for an unscoped dump**, but `excludedViews` need not be:
+  a view reading a relation in a `skipSchemas` schema is excluded on the same grounds, scope or no
+  scope. Note also that the warning log is only written when a scope is active, so an unscoped dump
+  reports such a view here and nowhere else.
+
+These are returned as well as logged on purpose. `logger: null` is a supported option, and a dump
+that quietly drops a foreign key or a view is the failure that costs the most to discover later —
+so a caller doing its own reporting gets a programmatic record rather than having to scrape the log.
+
 ### Restoring a dump
 
-`restoreSchema` reads a dump directory and replays it into the connected database.
+`restoreSchema` reads a dump directory and replays it into the connected database. It opens its own
+connection and closes it again, on success and on failure alike, so it needs no surrounding
+`connect()` / `end()`:
 
 ```ts
 const client = new PgClient('postgres://user:pass@localhost/fresh_db');
-await client.connect();
 await client.restoreSchema({ src: './schema/mydb' });
-await client.end();
 ```
 
 Files are applied in an order where every dependency is satisfied by an earlier file, so a dump replays in a single pass:
@@ -170,7 +208,7 @@ Two consequences worth knowing:
 - **Functions are restored before tables**, under `check_function_bodies = off`, so a function body may reference a table that does not exist yet. This is what makes it safe to merge triggers and expression indexes into table files.
 - **Every table is created before any foreign key is added**, so foreign key _cycles_ between tables restore without special handling.
 
-A file that fails is requeued once behind the others — enough for chained views — and the restore gives up when a full cycle passes with nothing succeeding. The error then names **every** file left unapplied with its own cause:
+A file that fails is not fatal: it goes to the back of the queue and is tried again later, as many times as the queue comes round — enough for chained views, where a view selects from another view that has not been created yet. The restore gives up only once a full lap of the queue completes with nothing applied, since the database is then unchanged and another lap would repeat the same failures. The error names **every** file left unapplied with its own cause:
 
 ```
 restoreSchema: 2 file(s) could not be applied:
@@ -188,8 +226,11 @@ await client.databaseExists('mydb_test');
 await client.createDatabase('mydb_test');
 await client.dropDatabase('mydb_test');
 await client.switchDatabase('other_db');
-await client.truncateTables('mydb_test'); // TRUNCATE ... CASCADE all non-skipped tables
+await client.truncateTables('mydb_test'); // switch to it, then TRUNCATE ... CASCADE every non-skipped table
 ```
+
+Note `truncateTables` switches the client to `db` first and leaves it there, the same way
+`ensureEmptyDb` does — it is not a read-only operation against some other database.
 
 ## Output structure
 
@@ -212,7 +253,10 @@ Constraint definitions come from `pg_get_constraintdef`, so composite primary ke
 
 `nextval(...)` column defaults are emitted verbatim rather than collapsed to `serial`/`bigserial`. The shorthand made Postgres auto-create a second sequence that collided with the dumped one, and it only ever matched tables in the search path, since sequence names are schema-qualified elsewhere.
 
-### Known gaps
+## Limitations
+
+Worth reading before adopting the tool — a schema using any of the following will dump or restore
+incompletely.
 
 Not currently collected: materialized views, partitioned tables (`relkind = 'p'`), `GENERATED ... AS IDENTITY` columns, domain/composite/range types (only enums), and row data — a dump is schema-only, so fixtures need their own seed script.
 
@@ -224,24 +268,31 @@ One restore-order shape is not solvable by the bucket rank, and will fail rather
 
 ## Development
 
-This project uses **pnpm** and requires **Node** (see [.nvmrc](.nvmrc)).
+This project uses **pnpm** and requires **Node 24** (see [.nvmrc](.nvmrc)).
 
 ```bash
 pnpm install
 pnpm build          # rimraf ./dist && tsc
 pnpm eslint         # lint ./src
-pnpm test:unit      # vitest unit tests (no database required)
-pnpm test:coverage  # full suite (unit + e2e) with coverage over ./src
+pnpm test:unit      # unit project only (no database required)
+pnpm test:e2e       # e2e project only (requires Docker)
+pnpm test           # both projects
+pnpm test:coverage  # both projects, with coverage over ./src
 ```
 
 ### Tests
 
 - **Unit** tests (`tests/unit/`) are pure and need no database.
-- **E2E** tests (`tests/e2e/`) use [Testcontainers](https://testcontainers.com/) to spin up an ephemeral PostgreSQL container, so **Docker must be running** locally. In CI, `ubuntu-latest` ships Docker, so no extra setup is needed. To run e2e against an existing database instead of a container, set `TEST_DB_HOST` (and optionally `TEST_DB_PORT` / `TEST_DB_USER` / `TEST_DB_PASSWORD`).
+- **E2E** tests (`tests/e2e/`) use [Testcontainers](https://testcontainers.com/) to spin up an ephemeral `postgres:16-alpine` container, so **Docker must be running** locally. In CI, `ubuntu-latest` ships Docker, so no extra setup is needed. To run e2e against an existing database instead of a container, set `TEST_DB_HOST` (and optionally `TEST_DB_PORT` / `TEST_DB_USER` / `TEST_DB_PASSWORD`).
 
-```bash
-pnpm test:e2e       # e2e project only (requires Docker)
-```
+One container is started for the whole e2e project, and the project runs single-forked and without
+file parallelism, so e2e tests share a single PostgreSQL instance rather than getting one each.
+
+**Coverage is gated.** [vitest.config.ts](vitest.config.ts) sets a 90% threshold on lines,
+statements and functions, and CI runs `pnpm test:coverage`, so falling below it fails the build.
+The threshold is on the aggregate, not per file (`perFile: false`, with `src/bin.ts` excluded and
+no branch threshold), so a small untested addition can still pass on the totals — treat 90% as the
+floor it is, not as the standard for a change. Run it locally before pushing.
 
 ### Git hooks
 
