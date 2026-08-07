@@ -152,6 +152,13 @@ test('validateScope rejects an empty schema entry', () => {
   expect(() => validateScope({ includeSchemas: ['  '] }, 'scope options')).toThrow('empty');
 });
 
+// One dot is not enough on its own - these have exactly one and still match nothing.
+test('validateScope rejects a qualified entry with an empty part', () => {
+  expect(() => validateScope({ includeTables: ['public.'] }, 'scope options')).toThrow('empty');
+  expect(() => validateScope({ includeTables: ['.orders'] }, 'scope options')).toThrow('empty');
+  expect(() => validateScope({ includeFunctions: ['public.'] }, 'scope options')).toThrow('empty');
+});
+
 test('validateScope passes a well-formed scope through unchanged', () => {
   const scope = { includeSchemas: ['billing'], includeTables: ['public.orders'], includeFunctions: ['public.gen_id'] };
   expect(validateScope(scope, 'scope options')).toEqual(scope);

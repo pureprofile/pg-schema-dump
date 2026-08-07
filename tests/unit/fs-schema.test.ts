@@ -2,8 +2,22 @@ import * as fs from 'fs-extra';
 import * as os from 'os';
 import * as path from 'path';
 import { vi } from 'vitest';
-import { FsSchema } from '../../src/fs-schema';
+import * as fsSchemaModule from '../../src/fs-schema';
+import { FsSchema, RESTORE_ORDER } from '../../src/fs-schema';
 import type { Attribute } from '../../src/pg-objects/tables';
+
+// RESTORE_ORDER is matched with startsWith, so a prefix missing from it does not error:
+// it sorts last and happens to work until something in that bucket genuinely has to be
+// restored before something else. Adding a write* method and forgetting to rank its
+// prefix is the mistake this catches.
+test('every file prefix has a place in RESTORE_ORDER', () => {
+  const prefixes = Object.entries(fsSchemaModule)
+    .filter(([name, value]) => name.startsWith('F_') && name.endsWith('_PREFIX') && typeof value === 'string')
+    .map(([, value]) => value as string);
+
+  expect(prefixes.length).toBeGreaterThan(0);
+  expect([...RESTORE_ORDER].sort()).toEqual([...prefixes].sort());
+});
 
 let tmp: string;
 let fsSchema: FsSchema;
@@ -61,7 +75,17 @@ test('writeExtension produces correct filename and content', () => {
 test('writeSchema wraps in CREATE SCHEMA IF NOT EXISTS', () => {
   fsSchema.writeSchema({ schema: 'myschema' });
   const content = fs.readFileSync(path.join(tmp, 'schema.myschema.sql'), 'utf8');
-  expect(content).toBe('CREATE SCHEMA IF NOT EXISTS "myschema"');
+  // Left bare: quoting a plain lowercase name would churn every dump for nothing.
+  expect(content).toBe('CREATE SCHEMA IF NOT EXISTS myschema');
+});
+
+// A name containing a double quote cannot be exercised here: it goes into the file
+// *name* too, which Windows rejects. quoteIdent's quote-doubling is covered directly in
+// fs-schema-helpers.test.ts, which is what stops such a name escaping its identifier.
+test('writeSchema quotes a mixed-case schema name so it does not fold', () => {
+  fsSchema.writeSchema({ schema: 'MixedCase' });
+  const content = fs.readFileSync(path.join(tmp, 'schema.MixedCase.sql'), 'utf8');
+  expect(content).toBe('CREATE SCHEMA IF NOT EXISTS "MixedCase"');
 });
 
 // ---------------------------------------------------------------------------

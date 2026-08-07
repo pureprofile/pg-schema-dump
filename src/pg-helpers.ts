@@ -11,7 +11,20 @@ export function pgQuoteStrings(arr: string[]): string[] {
   return arr.map(pgQuoteString);
 }
 
-export function pgStringArray(input: string): string[] {
+/**
+ * A Postgres array column as a JS array.
+ *
+ * Also accepts a value node-postgres has already parsed for us. Whether it parses is a
+ * detail of the *query*, not of this function: `array_agg(enumlabel)` yields `name[]`
+ * (oid 1003, which has no registered parser, so a raw `{a,b}` string arrives here),
+ * while the same aggregate over a `text` column yields `text[]` (oid 1009, parsed into
+ * a real array). Handing the array parser an array silently returns `[]`, so without
+ * this guard adding a cast to a query could quietly empty part of a dump.
+ */
+export function pgStringArray(input: string | string[]): string[] {
+  if (Array.isArray(input)) {
+    return input;
+  }
   return pgParseArray(input, (item) => item);
 }
 

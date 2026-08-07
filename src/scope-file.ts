@@ -86,6 +86,11 @@ export function validateScope(scope: ScopeOptions, source: string): ScopeOptions
           `${source}: "${field.name}" entry "${entry}" must be in "${field.shape}" form (exactly one ".")`
         );
       }
+      // One dot is not enough on its own: "public." and ".orders" both have exactly one,
+      // and both activate the scope while matching nothing.
+      if (entry.split('.').some((part) => part.trim() === '')) {
+        throw new Error(`${source}: "${field.name}" entry "${entry}" has an empty schema or name part`);
+      }
     }
   }
   // Schemas are a bare name, so they need the opposite check: a qualified entry here

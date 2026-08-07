@@ -74,7 +74,10 @@ export function inScopeFunctionOidsSql(scope: ResolvedScope): string {
         AND callee.prokind <> 'a'
         AND callee.probin IS NULL
         AND calleen.nspname NOT IN ('pg_catalog', 'information_schema')
-        AND strpos(caller.prosrc, callee.proname) > 0
+        -- Case-insensitive: prosrc is the body as *written*, while proname is the
+        -- folded catalog name, so a body calling HELPERS.INNER_FN() resolves live but
+        -- would not match its own callee's lowercase name.
+        AND strpos(lower(caller.prosrc), lower(callee.proname)) > 0
     )
     SELECT oid FROM closure
   `;

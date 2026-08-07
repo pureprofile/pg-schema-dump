@@ -13,9 +13,10 @@ export interface CollectedViews {
   views: View[];
 
   /**
-   * Views left out because something they read is out of scope, with the first
-   * offending dependency. Reported from here rather than re-derived by a second
-   * query, so the integrity log cannot drift from what was actually dumped.
+   * Views left out because something they read is out of scope, with one offending
+   * dependency each - the lowest-sorting, not the first encountered, since a view may
+   * have several. Reported from here rather than re-derived by a second query, so the
+   * integrity log cannot drift from what was actually dumped.
    */
   excluded: Array<{ view: string; cause: string }>;
 }
@@ -66,7 +67,9 @@ export async function collectViews(
           WHERE rw.ev_class = c.oid
             AND dep.refclassid = 'pg_class'::regclass
             AND dep.refobjid <> c.oid
-            AND dc.relkind IN ('r','m','p','S')
+            -- 'f' (foreign table) counts too: it is not dumped, so a view reading one
+            -- is no more restorable than a view reading an out-of-scope table.
+            AND dc.relkind IN ('r','m','p','S','f')
             AND NOT (${scope.tablePredicate('dn.nspname', 'dc.relname')})
           UNION ALL
           SELECT fn.nspname || '.' || fp.proname AS cause
@@ -91,6 +94,12 @@ export async function collectViews(
           AND dep.refclassid = 'pg_class'::regclass
           AND dep.refobjid <> c.oid
           AND dc.relkind = 'v'
+          -- Only views this collector could itself return. A catalog view, a view in a
+          -- skipped schema, or an extension's own view already exists when the restore
+          -- runs, so treating it as absent would drop a perfectly restorable view.
+          AND dn.nspname NOT IN ('pg_catalog', 'information_schema')
+          ${skipSchemas.length ? `AND dn.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``}
+          AND ${notExtensionOwned('pg_class', 'dc.oid')}
       ) AS "viewDeps"
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace

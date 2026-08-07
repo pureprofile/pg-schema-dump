@@ -2,6 +2,7 @@ import { Client } from 'pg';
 import { pgStringArray, pgQuoteString, pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 import { quoteQualified } from '../fs-schema-helpers';
+import { inScopeFunctionOidsSql } from './scope-sql';
 
 export async function collectTypes(client: Client, options: { skipSchemas?: string[]; scope?: ResolvedScope } = {}) {
   const skipSchemas = options.skipSchemas || [];
@@ -25,6 +26,20 @@ export async function collectTypes(client: Client, options: { skipSchemas?: stri
             AND NOT a.attisdropped
             AND (at.oid = t.oid OR at.typelem = t.oid OR at.typbasetype = t.oid)
             AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+        )
+        OR EXISTS (
+          -- An in-scope function may take or return the enum with no in-scope table
+          -- column using it anywhere. The function is dumped regardless, and
+          -- CREATE FUNCTION resolves its signature types eagerly - only the *body* is
+          -- exempt under check_function_bodies = off - so the type must come with it.
+          SELECT 1
+          FROM pg_proc fp
+          WHERE fp.oid IN (${inScopeFunctionOidsSql(scope)})
+            AND (
+              fp.prorettype = t.oid
+              OR t.oid = ANY(fp.proargtypes::oid[])
+              OR t.oid = ANY(COALESCE(fp.proallargtypes, fp.proargtypes::oid[]))
+            )
         )
       )`
     : ``;

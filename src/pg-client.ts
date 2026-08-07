@@ -15,6 +15,7 @@ import { collectFunctions } from './pg-objects/functions';
 import { collectTriggers } from './pg-objects/triggers';
 import { collectSequences, OwnedBy } from './pg-objects/sequences';
 import { resolveScope, ResolvedScope, ScopeOptions } from './scope';
+import { validateScope } from './scope-file';
 
 const DEFAULT_SCHEMAS_TO_SKIP: string[] = ['pg_catalog', 'information_schema'];
 const DEFAULT_FUNCTIONS_TO_SKIP: string[] = [];
@@ -60,7 +61,10 @@ export class PgClient {
     this._skipSchemas = DEFAULT_SCHEMAS_TO_SKIP.concat(options.skipSchemas || []);
     this._skipFunctions = DEFAULT_FUNCTIONS_TO_SKIP.concat(options.skipFunctions || []);
     this._skipExtensions = options.skipExtensions || [];
-    this._scope = resolveScope(options.scope);
+    // Validated here too, not only at the CLI and manifest boundaries: a library caller
+    // passing `{ includeTables: ['orders'] }` would otherwise activate scoping, match
+    // nothing, and get a near-empty dump reported as a success.
+    this._scope = resolveScope(options.scope ? validateScope(options.scope, 'scope option') : undefined);
     this._scopeSummary =
       `${(options.scope?.includeSchemas || []).length} schemas, ` +
       `${(options.scope?.includeTables || []).length} tables`;
@@ -284,10 +288,15 @@ export class PgClient {
 
   async restoreSchema({ src }: { src: string }) {
     await this.connect();
+    // A sentinel rather than a truthiness test below: `throw undefined` (or 0, or '')
+    // would otherwise be swallowed and reported to the caller as a successful restore,
+    // which is precisely the failure this structure exists to prevent.
+    let failed = false;
     let restoreError: unknown;
     try {
       await this._restoreSchema({ src });
     } catch (err) {
+      failed = true;
       restoreError = err;
     }
 
@@ -313,7 +322,7 @@ export class PgClient {
       this._logger?.warn(`failed to close the connection after restore: ${(err as Error).message}`);
     }
 
-    if (restoreError) {
+    if (failed) {
       throw restoreError;
     }
   }

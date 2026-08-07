@@ -64,7 +64,10 @@ export async function collectSequences(
           SELECT 1 FROM pg_proc fp
           WHERE fp.oid IN (${inScopeFunctionOidsSql(scope)})
             AND fp.prosrc IS NOT NULL
-            AND strpos(fp.prosrc, c.relname) > 0
+            -- Case-insensitive for the same reason as the function closure: prosrc is
+            -- the body as written, so nextval('MY_SEQ') would not match the folded
+            -- catalog name and the sequence would be silently dropped.
+            AND strpos(lower(fp.prosrc), lower(c.relname)) > 0
         )
       )
     `

@@ -93,7 +93,10 @@ export class FsSchema {
   }
 
   writeSchema(s: { schema: string }) {
-    const sql = `CREATE SCHEMA IF NOT EXISTS "${s.schema}"`;
+    // Hand-quoting misses the escaping: a schema legally named `a"b` closes the
+    // identifier early, which is malformed at best and a way to append statements to
+    // the restore stream at worst. quoteIdent doubles embedded quotes.
+    const sql = `CREATE SCHEMA IF NOT EXISTS ${quoteIdent(s.schema)}`;
     this.outputFileSyncSafe(path.join(this.root, `${F_SCHEMA_PREFIX}${s.schema}`), 'sql', sql);
     return s;
   }
