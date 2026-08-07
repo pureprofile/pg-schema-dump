@@ -2,6 +2,7 @@ import { Client } from 'pg';
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 import { quoteQualified } from '../fs-schema-helpers';
+import { inScopeFunctionOidsSql } from './scope-sql';
 
 export async function collectSequences(
   client: Client,
@@ -13,7 +14,10 @@ export async function collectSequences(
   const skipSchemas = options.skipSchemas || [];
   const scope = options.scope || resolveScope();
   // A sequence is in scope when its schema was opted into wholesale, when an
-  // in-scope table owns it, or when an in-scope table's column default calls it.
+  // in-scope table owns it, when an in-scope table's column default calls it, or
+  // when an in-scope function's body names it - a nextval() inside a trigger
+  // function is invisible to pg_depend, and the restore fails on the first insert
+  // that fires the trigger.
   // That last case is not optional: plenty of legacy sequences have no owner and
   // are reached only through a `default nextval(...)`, and dropping them makes
   // the referencing CREATE TABLE fail. Using schemaPredicate instead would pull
@@ -42,6 +46,12 @@ export async function collectSequences(
           WHERE dep.refobjid = c.oid
             AND dep.refclassid = 'pg_class'::regclass
             AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+        )
+        OR EXISTS (
+          SELECT 1 FROM pg_proc fp
+          WHERE fp.oid IN (${inScopeFunctionOidsSql(scope)})
+            AND fp.prosrc IS NOT NULL
+            AND strpos(fp.prosrc, c.relname) > 0
         )
       )
     `
