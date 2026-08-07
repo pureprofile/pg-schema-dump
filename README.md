@@ -216,6 +216,8 @@ Constraint definitions come from `pg_get_constraintdef`, so composite primary ke
 
 Not currently collected: materialized views, partitioned tables (`relkind = 'p'`), `GENERATED ... AS IDENTITY` columns, domain/composite/range types (only enums), and row data — a dump is schema-only, so fixtures need their own seed script.
 
+One restore-order shape is not solvable by the bucket rank, and will fail rather than silently misbehave: a function whose **signature** takes a table's composite row type (`CREATE FUNCTION f(public.t)`), where that same table also carries a CHECK constraint or expression index calling `f`. Functions restore first, and `check_function_bodies = off` relaxes body validation only — the signature still needs the row type, so `f` cannot be created before `t`. But `t`'s file carries the dependent index, which cannot be created before `f`, and a table file is a single multi-statement query that rolls back whole. Neither can go first. Breaking it means splitting the dependent objects out of the table file, which trades away the file-count reduction that merging exists for, so it stays unsolved until a real schema needs it. The restore stops and names both files.
+
 ## Development
 
 This project uses **pnpm** and requires **Node** (see [.nvmrc](.nvmrc)).
