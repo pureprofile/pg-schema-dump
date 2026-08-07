@@ -64,18 +64,32 @@ test('collectExtensions returns an array (may include pgcrypto)', async () => {
   expect(names).toContain('pgcrypto');
 });
 
-test('collectTypes returns mood enum', async () => {
+test('collectTypes returns mood enum, schema-qualified with ordered values', async () => {
   const rows = await collectTypes(raw);
   const mood = rows.find((r) => r.name === 'mood');
   expect(mood).toBeDefined();
+  expect(mood!.schema).toBe('public');
   expect(mood!.src.toUpperCase()).toContain('ENUM');
+  expect(mood!.src).toContain(`CREATE TYPE public."mood"`);
+  expect(mood!.src.indexOf('happy')).toBeLessThan(mood!.src.indexOf('sad'));
 });
 
-test('collectSequences returns my_seq with CREATE SEQUENCE src', async () => {
+test('collectSequences returns my_seq with CREATE SEQUENCE src including START/CYCLE, no ownedBy', async () => {
   const rows = await collectSequences(raw);
   const seq = rows.find((r) => r.name === 'my_seq');
   expect(seq).toBeDefined();
   expect(seq!.src.toUpperCase()).toContain('CREATE SEQUENCE');
+  expect(seq!.src.toUpperCase()).toContain('START');
+  expect(seq!.src.toUpperCase()).toContain('NO CYCLE');
+  expect(seq!.ownedBy).toBeNull();
+});
+
+test('collectSequences returns parent_id_seq owned by parent.id with ALTER SEQUENCE OWNED BY', async () => {
+  const rows = await collectSequences(raw);
+  const seq = rows.find((r) => r.name === 'parent_id_seq');
+  expect(seq).toBeDefined();
+  expect(seq!.ownedBy).toBe('public.parent.id');
+  expect(seq!.src).toContain('ALTER SEQUENCE public.parent_id_seq OWNED BY public.parent.id');
 });
 
 test('collectTables with skipSchemas:[] returns parent and child with FK reference', async () => {
@@ -107,6 +121,13 @@ test('collectIndexes with non-empty skipSchemas still contains idx_child_parent'
   const rows = await collectIndexes(raw, { skipSchemas: ['pg_catalog'] });
   const names = rows.map((r) => r.name);
   expect(names).toContain('idx_child_parent');
+});
+
+test('collectIndexes excludes constraint-backed indexes (e.g. parent_pkey)', async () => {
+  const rows = await collectIndexes(raw, { skipSchemas: [] });
+  const names = rows.map((r) => r.name);
+  expect(names).not.toContain('parent_pkey');
+  expect(names).not.toContain('child_pkey');
 });
 
 test('collectViews with skipSchemas:[] contains parent_names', async () => {

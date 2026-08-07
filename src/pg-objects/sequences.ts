@@ -38,6 +38,7 @@ export async function collectSequences(
     seqmin: string;
     seqmax: string;
     seqcycle: boolean;
+    ownedBy: string | null;
   }>(`
     SELECT
       n.nspname AS "schema",
@@ -46,7 +47,18 @@ export async function collectSequences(
       s.seqincrement AS "seqincrement",
       s.seqmin AS "seqmin",
       s.seqmax AS "seqmax",
-      s.seqcycle AS "seqcycle"
+      s.seqcycle AS "seqcycle",
+      (
+        SELECT rn.nspname || '.' || rc.relname || '.' || a.attname
+        FROM pg_depend dep
+        JOIN pg_class rc ON rc.oid = dep.refobjid
+        JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+        JOIN pg_attribute a ON a.attrelid = dep.refobjid AND a.attnum = dep.refobjsubid
+        WHERE dep.objid = c.oid
+          AND dep.classid = 'pg_class'::regclass
+          AND dep.refclassid = 'pg_class'::regclass
+          AND dep.deptype = 'a'
+      ) AS "ownedBy"
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_sequence s ON s.seqrelid = c.oid
@@ -55,15 +67,21 @@ export async function collectSequences(
       ${scopeClause}
   `);
   return result.rows.map((row) => {
+    const createStmt = `
+      CREATE SEQUENCE ${row.schema}.${row.name}
+      INCREMENT ${row.seqincrement}
+      MINVALUE ${row.seqmin}
+      MAXVALUE ${row.seqmax}
+      START ${row.seqstart}
+      ${row.seqcycle ? 'CYCLE' : 'NO CYCLE'}
+    `.trim();
     return {
       schema: row.schema,
       name: row.name,
-      src: `
-        CREATE SEQUENCE ${row.schema}.${row.name}
-        INCREMENT ${row.seqincrement}
-        MINVALUE ${row.seqmin}
-        MAXVALUE ${row.seqmax}
-      `.trim(),
+      ownedBy: row.ownedBy,
+      src: row.ownedBy
+        ? `${createStmt};\nALTER SEQUENCE ${row.schema}.${row.name} OWNED BY ${row.ownedBy}`
+        : createStmt,
     };
   });
 }
