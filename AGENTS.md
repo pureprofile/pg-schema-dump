@@ -22,6 +22,22 @@ never the table it was found on.
 The `@pureprofile/` npm scope in the package name is the one exception: that is the
 published identity.
 
+### Commits and pull requests
+
+Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) —
+`<type>(<scope>): <description>`, where type is one of feat, fix, docs, style,
+refactor, perf, test, build, ci, chore, revert. Breaking changes take a `!`
+(`feat(restore)!: ...`).
+
+**Do not reference Linear, Jira or any other internal tracker** in commit messages,
+branch names, pull request titles or pull request bodies. A `PUR-1234:` prefix is the
+convention in Pureprofile's private repositories; here it leaks issue identifiers and
+tells a reader nothing. Describe the change on its own terms instead.
+
+Where an internal need drove a change, state the technical shape that required it —
+"a scoped dump has to keep a sequence reached only from a trigger body" — not which
+project asked or which table it was found on.
+
 ## Commands
 
 - `npm run build` — `rimraf ./dist && tsc`. The published artifact is `dist/`; `main` is `dist/index.js`, `bin` is `dist/bin.js`.
