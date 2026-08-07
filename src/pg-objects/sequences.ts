@@ -67,21 +67,22 @@ export async function collectSequences(
       ${scopeClause}
   `);
   return result.rows.map((row) => {
-    const createStmt = `
-      CREATE SEQUENCE ${row.schema}.${row.name}
-      INCREMENT ${row.seqincrement}
-      MINVALUE ${row.seqmin}
-      MAXVALUE ${row.seqmax}
-      START ${row.seqstart}
-      ${row.seqcycle ? 'CYCLE' : 'NO CYCLE'}
-    `.trim();
     return {
       schema: row.schema,
       name: row.name,
+      // The matching ALTER SEQUENCE ... OWNED BY is emitted into the owning
+      // table's file, not here: it cannot run until that table exists, and a
+      // multi-statement file runs in one implicit transaction, so failing that
+      // ALTER would roll the CREATE SEQUENCE back with it.
       ownedBy: row.ownedBy,
-      src: row.ownedBy
-        ? `${createStmt};\nALTER SEQUENCE ${row.schema}.${row.name} OWNED BY ${row.ownedBy}`
-        : createStmt,
+      src: `
+        CREATE SEQUENCE ${row.schema}.${row.name}
+        INCREMENT ${row.seqincrement}
+        MINVALUE ${row.seqmin}
+        MAXVALUE ${row.seqmax}
+        START ${row.seqstart}
+        ${row.seqcycle ? 'CYCLE' : 'NO CYCLE'}
+      `.trim(),
     };
   });
 }

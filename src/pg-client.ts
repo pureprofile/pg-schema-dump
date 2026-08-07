@@ -1,8 +1,10 @@
 import * as pg from 'pg';
-import { all, findAndShiftFunctionReferences, pgQuoteStrings } from './pg-helpers';
+import { pgQuoteStrings } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
 import { FsSchema } from './fs-schema';
+import { unquoted } from './fs-schema-helpers';
+import { collectConstraints } from './pg-objects/constraints';
 import { uniq } from 'lodash';
 import { collectIndexes } from './pg-objects/indexes';
 import { collectExtensions } from './pg-objects/extensions';
@@ -158,15 +160,18 @@ export class PgClient {
     if (!this._client) {
       throw new Error(`this.connect() should ensure client exists`);
     }
-    const [, , functions, indexes, sequences, tables, triggers, views] = await Promise.all([
-      collectExtensions(this._client, { skipExtensions }).then(all(fsSchema.writeExtension)),
-      collectTypes(this._client, { scope }).then(all(fsSchema.writeType)),
-      collectFunctions(this._client, { skipSchemas, skipFunctions, scope }).then(all(fsSchema.writeFunction)),
-      collectIndexes(this._client, { skipSchemas, scope }).then(all(fsSchema.writeIndex)),
-      collectSequences(this._client, { skipSchemas, scope }).then(all(fsSchema.writeSequence)),
-      collectTables(this._client, { skipSchemas, scope }).then(all(fsSchema.writeTable)),
-      collectTriggers(this._client, { skipSchemas, scope }).then(all(fsSchema.writeTrigger)),
-      collectViews(this._client, { skipSchemas, scope }).then(all(fsSchema.writeView)),
+    // Collect everything first: per-table objects are merged into one file per
+    // table, so nothing can be written until all of it is in hand.
+    const [extensions, types, functions, indexes, sequences, tables, triggers, views, constraints] = await Promise.all([
+      collectExtensions(this._client, { skipExtensions }),
+      collectTypes(this._client, { skipSchemas, scope }),
+      collectFunctions(this._client, { skipSchemas, skipFunctions, scope }),
+      collectIndexes(this._client, { skipSchemas, scope }),
+      collectSequences(this._client, { skipSchemas, scope }),
+      collectTables(this._client, { skipSchemas, scope }),
+      collectTriggers(this._client, { skipSchemas, scope }),
+      collectViews(this._client, { skipSchemas, scope }),
+      collectConstraints(this._client, { skipSchemas, scope }),
     ] as const);
 
     if (scope.active) {
@@ -175,14 +180,68 @@ export class PgClient {
 
     await this.end();
 
+    const tableKey = (schema: string, table: string) => `${schema}.${table}`;
+    const byTable = <T extends { schema: string; table: string }>(items: T[]) => {
+      const map: { [key: string]: T[] } = {};
+      for (const item of items) {
+        const key = tableKey(item.schema, unquoted(item.table));
+        (map[key] = map[key] || []).push(item);
+      }
+      return map;
+    };
+
+    const indexesByTable = byTable(indexes);
+    const triggersByTable = byTable(triggers);
+    const constraintsByTable = byTable(constraints);
+
+    // A sequence owned by a column belongs to that column's table: its
+    // ALTER SEQUENCE ... OWNED BY has to run after the table exists, so it is
+    // emitted inside the table's file rather than the sequence's own.
+    const ownedSequencesByTable: { [key: string]: Array<{ schema: string; name: string; ownedBy: string }> } = {};
+    for (const sequence of sequences) {
+      if (!sequence.ownedBy) {
+        continue;
+      }
+      // ownedBy is 'schema.table.column'
+      const parts = sequence.ownedBy.split('.');
+      const key = tableKey(parts[0], parts[1]);
+      (ownedSequencesByTable[key] = ownedSequencesByTable[key] || []).push({
+        schema: sequence.schema,
+        name: sequence.name,
+        ownedBy: sequence.ownedBy,
+      });
+    }
+
+    extensions.map(fsSchema.writeExtension);
+    types.map(fsSchema.writeType);
+    functions.map(fsSchema.writeFunction);
+    sequences.map(fsSchema.writeSequence);
+    views.map(fsSchema.writeView);
+
+    for (const table of tables) {
+      const key = tableKey(table.schema, table.table);
+      fsSchema.writeTable({
+        ...table,
+        constraints: (constraintsByTable[key] || []).filter((c) => c.type !== 'f'),
+        indexes: indexesByTable[key] || [],
+        triggers: triggersByTable[key] || [],
+        ownedSequences: ownedSequencesByTable[key] || [],
+      });
+      fsSchema.writeForeignKeys({
+        schema: table.schema,
+        table: table.table,
+        constraints: (constraintsByTable[key] || []).filter((c) => c.type === 'f'),
+      });
+    }
+
     const getSchema = <T extends { schema: string }>(arg: T) => arg.schema;
     uniq([
+      ...types.map(getSchema),
       ...functions.map(getSchema),
-      ...indexes.map(getSchema),
       ...sequences.map(getSchema),
       ...tables.map(getSchema),
-      ...triggers.map(getSchema),
       ...views.map(getSchema),
+      ...constraints.map(getSchema),
     ]).map((schema) => fsSchema.writeSchema({ schema }));
 
     this._logger?.info(`finished dump of: ${await this.getCurrentDatabase()}`);
@@ -237,35 +296,47 @@ export class PgClient {
     await this.connect();
     const fsSchema = new FsSchema(src, this._logger);
     this._logger?.info(`reading contents from: ${src}`);
+
+    // Functions are restored before the tables they may reference, so their
+    // bodies must not be validated on creation.
+    await this._client!.query(`SET check_function_bodies = off`);
+
     const fNames = await fsSchema.readDir();
-    const fHasErrored: string[] = [];
+    const lastError: { [fName: string]: Error } = {};
+    // Files are ordered so one pass suffices, but chained views (a view selecting
+    // from another view) can still need a retry. Requeue a failing file and give
+    // up only once a full cycle completes with nothing succeeding.
+    let sinceLastProgress = 0;
+
     while (fNames.length > 0) {
       const fName = fNames[0];
       const fContents = await fsSchema.read(fName);
 
-      // handle references
-      if (findAndShiftFunctionReferences(fName, fContents, fNames)) {
-        continue;
-      }
-
       try {
         await this._client!.query(fContents);
-        // remove the file if it was processed without error
         fNames.shift();
-        // empty the fHasErrored array
-        fHasErrored.splice(0, fHasErrored.length);
+        delete lastError[fName];
+        sinceLastProgress = 0;
       } catch (err) {
-        // if the file has not errored yet, move it to the end of the file stack
-        if (!fHasErrored.includes(fName)) {
-          fHasErrored.push(fName);
-          fNames.shift();
-          fNames.push(fName);
-          continue;
+        lastError[fName] = err as Error;
+        fNames.shift();
+        fNames.push(fName);
+        sinceLastProgress += 1;
+        if (sinceLastProgress > fNames.length) {
+          break;
         }
-        this._logger?.error(`error processing file ${fName}: ${(err as Error).stack || err}`);
-        throw err;
       }
     }
+
+    if (fNames.length > 0) {
+      const report = uniq(fNames)
+        .map((fName) => `  - ${fName}: ${lastError[fName] ? lastError[fName].message : 'unknown error'}`)
+        .join('\n');
+      const error = new Error(`restoreSchema: ${uniq(fNames).length} file(s) could not be applied:\n${report}`);
+      this._logger?.error(error.message);
+      throw error;
+    }
+
     this._logger?.info(`all contents restored!`);
     await this.end();
   }

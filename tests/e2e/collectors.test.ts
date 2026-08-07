@@ -84,12 +84,16 @@ test('collectSequences returns my_seq with CREATE SEQUENCE src including START/C
   expect(seq!.ownedBy).toBeNull();
 });
 
-test('collectSequences returns parent_id_seq owned by parent.id with ALTER SEQUENCE OWNED BY', async () => {
+test('collectSequences reports ownership separately from the CREATE statement', async () => {
   const rows = await collectSequences(raw);
   const seq = rows.find((r) => r.name === 'parent_id_seq');
   expect(seq).toBeDefined();
   expect(seq!.ownedBy).toBe('public.parent.id');
-  expect(seq!.src).toContain('ALTER SEQUENCE public.parent_id_seq OWNED BY public.parent.id');
+  // The ALTER SEQUENCE ... OWNED BY belongs in the owning table's file, not here:
+  // it cannot run before that table exists, and a multi-statement file runs in a
+  // single implicit transaction, so a failing ALTER would roll back the CREATE too.
+  expect(seq!.src).not.toContain('OWNED BY');
+  expect(seq!.src.toUpperCase()).toContain('CREATE SEQUENCE');
 });
 
 test('collectTables with skipSchemas:[] returns parent and child with FK reference', async () => {

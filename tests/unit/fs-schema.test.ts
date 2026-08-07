@@ -67,10 +67,10 @@ test('writeSchema wraps in CREATE SCHEMA IF NOT EXISTS', () => {
 // ---------------------------------------------------------------------------
 // writeType
 // ---------------------------------------------------------------------------
-test('writeType normalizes CRLF and writes correct prefix', () => {
-  const src = "CREATE TYPE mood AS ENUM (\r\n  'happy',\r\n  'sad'\r\n)";
-  fsSchema.writeType({ name: 'mood', src });
-  const content = fs.readFileSync(path.join(tmp, 'type.mood.sql'), 'utf8');
+test('writeType normalizes CRLF and schema-qualifies the filename', () => {
+  const src = "CREATE TYPE public.mood AS ENUM (\r\n  'happy',\r\n  'sad'\r\n)";
+  fsSchema.writeType({ schema: 'public', name: 'mood', src });
+  const content = fs.readFileSync(path.join(tmp, 'type.public.mood.sql'), 'utf8');
   expect(content).not.toContain('\r');
   expect(content).toContain('happy');
 });
@@ -84,16 +84,6 @@ test('writeFunction produces correct prefix and normalizes src', () => {
   const content = fs.readFileSync(path.join(tmp, 'function.public.do_thing.sql'), 'utf8');
   expect(content).not.toContain('\r');
   expect(content).toContain('do_thing');
-});
-
-// ---------------------------------------------------------------------------
-// writeIndex
-// ---------------------------------------------------------------------------
-test('writeIndex produces correct filename and preserves src', () => {
-  const src = 'CREATE INDEX idx_users_email ON public.users (email)';
-  fsSchema.writeIndex({ schema: 'public', table: 'users', name: 'idx_users_email', src });
-  const content = fs.readFileSync(path.join(tmp, 'index.public.users.idx_users_email.sql'), 'utf8');
-  expect(content).toBe(src);
 });
 
 // ---------------------------------------------------------------------------
@@ -117,68 +107,46 @@ test('writeView wraps in CREATE OR REPLACE VIEW and uses correct prefix', () => 
 });
 
 // ---------------------------------------------------------------------------
-// writeTrigger — unquotes table name in filename
+// attributeSql — sequence defaults are kept verbatim
 // ---------------------------------------------------------------------------
-test('writeTrigger uses unquoted table name in filename', () => {
-  const src = 'CREATE TRIGGER trg_audit AFTER INSERT ON "my_table" FOR EACH ROW EXECUTE PROCEDURE audit()';
-  fsSchema.writeTrigger({ schema: 'public', table: '"my_table"', name: 'trg_audit', src });
-  // filename should use unquoted form: trigger.public.my_table.trg_audit.sql
-  expect(fs.existsSync(path.join(tmp, 'trigger.public.my_table.trg_audit.sql'))).toBe(true);
-  const content = fs.readFileSync(path.join(tmp, 'trigger.public.my_table.trg_audit.sql'), 'utf8');
-  expect(content).toBe(`${src}\n`);
-});
-
-// ---------------------------------------------------------------------------
-// attributeSql — serial mapping
-// ---------------------------------------------------------------------------
-test('attributeSql: integer + nextval seq → serial', () => {
+// Serial shorthand used to be inferred here, but `bigserial` makes Postgres
+// auto-create a sequence that collides with the one the dump already emits.
+// Emitting the raw nextval() default instead keeps the two in sync, and behaves
+// identically whether or not the sequence name is schema-qualified.
+test('attributeSql: nextval default is emitted verbatim, not as serial', () => {
   const result = fsSchema.attributeSql({
     table: 'users',
     name: 'id',
-    type: 'integer',
+    type: 'bigint',
     defaultValue: "nextval('users_id_seq'::regclass)",
     description: '',
     isPrimaryKey: false,
   });
-  expect(result).toBe('id serial');
+  expect(result).toBe(`id bigint default nextval('users_id_seq'::regclass)`);
 });
 
-test('attributeSql: smallint + nextval seq → smallserial', () => {
+test('attributeSql: schema-qualified nextval default is emitted verbatim', () => {
+  const result = fsSchema.attributeSql({
+    table: 'publisher',
+    name: 'id',
+    type: 'bigint',
+    defaultValue: "nextval('affiliates.publisher_id_seq'::regclass)",
+    description: '',
+    isPrimaryKey: false,
+  });
+  expect(result).toBe(`id bigint default nextval('affiliates.publisher_id_seq'::regclass)`);
+});
+
+test('attributeSql: a type with no serial equivalent no longer throws', () => {
   const result = fsSchema.attributeSql({
     table: 'users',
-    name: 'count',
-    type: 'smallint',
-    defaultValue: "nextval('users_count_seq'::regclass)",
+    name: 'amount',
+    type: 'numeric',
+    defaultValue: "nextval('users_amount_seq'::regclass)",
     description: '',
     isPrimaryKey: false,
   });
-  // "count" is a keyword so it gets quoted
-  expect(result).toBe('"count" smallserial');
-});
-
-test('attributeSql: bigint + nextval seq → bigserial', () => {
-  const result = fsSchema.attributeSql({
-    table: 'events',
-    name: 'event_id',
-    type: 'bigint',
-    defaultValue: "nextval('events_event_id_seq'::regclass)",
-    description: '',
-    isPrimaryKey: false,
-  });
-  expect(result).toBe('event_id bigserial');
-});
-
-test('attributeSql: numeric + nextval seq → throws (no serial mapping)', () => {
-  expect(() =>
-    fsSchema.attributeSql({
-      table: 'users',
-      name: 'amount',
-      type: 'numeric',
-      defaultValue: "nextval('users_amount_seq'::regclass)",
-      description: '',
-      isPrimaryKey: false,
-    })
-  ).toThrow(/serial mapping/i);
+  expect(result).toContain('numeric');
 });
 
 // ---------------------------------------------------------------------------
@@ -259,7 +227,10 @@ test('attributeSql: non-serial defaultValue → contains "default"', () => {
   expect(result).toContain('default 0');
 });
 
-test('attributeSql: isPrimaryKey → contains "primary key"', () => {
+// Primary keys are emitted as named table constraints from pg_get_constraintdef
+// (the only form that can express a composite key), so the column definition
+// must not also declare one.
+test('attributeSql: isPrimaryKey does not emit an inline primary key', () => {
   const result = fsSchema.attributeSql({
     table: 'users',
     name: 'id',
@@ -268,7 +239,7 @@ test('attributeSql: isPrimaryKey → contains "primary key"', () => {
     description: '',
     isPrimaryKey: true,
   });
-  expect(result).toContain('primary key');
+  expect(result).toBe('id uuid');
 });
 
 test('attributeSql: unsafe name → quoted', () => {
@@ -334,57 +305,113 @@ test('writeTable: creates table file and fk file', () => {
     },
   ];
 
-  fsSchema.writeTable({ schema: 'public', table: 'orders', attributes });
+  fsSchema.writeTable({
+    schema: 'public',
+    table: 'orders',
+    attributes,
+    constraints: [
+      { schema: 'public', table: 'orders', name: 'orders_pkey', type: 'p', def: 'PRIMARY KEY (id)' },
+      { schema: 'public', table: 'orders', name: 'orders_note_chk', type: 'c', def: "CHECK (note <> ''::text)" },
+    ],
+    indexes: [{ src: 'CREATE INDEX IF NOT EXISTS idx_orders_note ON public.orders (note)\n' }],
+    triggers: [{ src: 'CREATE TRIGGER trg AFTER INSERT ON public.orders FOR EACH ROW EXECUTE FUNCTION audit()' }],
+    ownedSequences: [{ schema: 'public', name: 'orders_id_seq', ownedBy: 'public.orders.id' }],
+  });
 
-  // Table file exists and starts correctly
   const tableContent = fs.readFileSync(path.join(tmp, 'table.public.orders.sql'), 'utf8');
   expect(tableContent.startsWith('create table public.orders (')).toBe(true);
 
   // sortedAttributes ordering: id, created_at, city_id (references → higher priority), note
-  const lines = tableContent.split('\n');
-  const colLines = lines.filter((l) => l.startsWith('  '));
-  expect(colLines[0]).toMatch(/id serial/);
+  const colLines = tableContent.split('\n').filter((l) => l.startsWith('  '));
+  expect(colLines[0]).toMatch(/id integer default nextval/);
   expect(colLines[1]).toMatch(/created_at/);
-  // city_id has references so it comes before note
   const cityIdx = colLines.findIndex((l) => l.includes('city_id'));
-  const noteIdx = colLines.findIndex((l) => l.includes('note'));
+  const noteIdx = colLines.findIndex((l) => l.includes('note '));
   expect(cityIdx).toBeLessThan(noteIdx);
 
-  // FK file exists with a doubled .sql extension. This is a pre-existing quirk in
-  // writeTable (it passes a name already ending in `.sql` to outputFileSyncSafe, which
-  // appends another `.sql`), unlike every other write* method. Asserted as-is to lock in
-  // current behavior; changing the filename is a separate behavior change, out of scope here.
-  const fkFile = path.join(tmp, 'fk.public.orders.city_id_fk.sql.sql');
+  // constraints are named table constraints inside CREATE TABLE
+  expect(tableContent).toContain('constraint orders_pkey PRIMARY KEY (id)');
+  expect(tableContent).toContain("constraint orders_note_chk CHECK (note <> ''::text)");
+
+  // sequence ownership, indexes and triggers are merged into the same file, each
+  // terminated so the whole file replays as one multi-statement script
+  expect(tableContent).toContain('ALTER SEQUENCE public.orders_id_seq OWNED BY public.orders.id;');
+  expect(tableContent).toContain('CREATE INDEX IF NOT EXISTS idx_orders_note ON public.orders (note);');
+  expect(tableContent).toContain('EXECUTE FUNCTION audit();');
+  // no stray files for the merged objects
+  expect(fs.readdirSync(tmp).filter((f) => f.startsWith('index.') || f.startsWith('trigger.'))).toEqual([]);
+});
+
+test('writeForeignKeys: one file per table holding every foreign key', () => {
+  fsSchema.writeForeignKeys({
+    schema: 'public',
+    table: 'orders',
+    constraints: [
+      {
+        schema: 'public',
+        table: 'orders',
+        name: 'orders_city_fk',
+        type: 'f',
+        def: 'FOREIGN KEY (city_id) REFERENCES public.cities(id)',
+      },
+      {
+        schema: 'public',
+        table: 'orders',
+        name: 'orders_tenant_fk',
+        type: 'f',
+        def: 'FOREIGN KEY (tenant_id, user_id) REFERENCES public.users(tenant_id, id)',
+      },
+    ],
+  });
+
+  const fkFile = path.join(tmp, 'fk.public.orders.sql');
   expect(fs.existsSync(fkFile)).toBe(true);
   const fkContent = fs.readFileSync(fkFile, 'utf8');
-  expect(fkContent).toContain('ALTER TABLE public.orders');
-  expect(fkContent).toContain('ADD CONSTRAINT');
-  expect(fkContent).toContain('FOREIGN KEY');
-  expect(fkContent).toContain('REFERENCES');
+  expect(fkContent).toContain('ALTER TABLE public.orders ADD CONSTRAINT orders_city_fk FOREIGN KEY (city_id)');
+  // multi-column foreign keys survive, which the old per-column derivation could not express
+  expect(fkContent).toContain(
+    'ALTER TABLE public.orders ADD CONSTRAINT orders_tenant_fk FOREIGN KEY (tenant_id, user_id) REFERENCES public.users(tenant_id, id);'
+  );
+});
+
+test('writeForeignKeys: writes nothing when a table has no foreign keys', () => {
+  fsSchema.writeForeignKeys({ schema: 'public', table: 'orders', constraints: [] });
+  expect(fs.readdirSync(tmp)).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------
 // readDir — ordering by prefix priority
 // ---------------------------------------------------------------------------
-test('readDir returns files sorted by prefix priority', async () => {
-  fs.outputFileSync(path.join(tmp, 'zzz_unprefixed.sql'), '');
-  fs.outputFileSync(path.join(tmp, 'table.public.a.sql'), '');
-  fs.outputFileSync(path.join(tmp, 'fk.public.a.x_fk.sql'), '');
-  fs.outputFileSync(path.join(tmp, 'schema.public.sql'), '');
-  fs.outputFileSync(path.join(tmp, 'extension.x.sql'), '');
+test('readDir orders files so every dependency is satisfied by an earlier file', async () => {
+  const names = [
+    'zzz_unprefixed.sql',
+    'view.public.v.sql',
+    'fk.public.a.sql',
+    'table.public.a.sql',
+    'function.public.f.sql',
+    'sequence.public.a_id_seq.sql',
+    'type.public.mood.sql',
+    'schema.public.sql',
+    'extension.x.sql',
+  ];
+  for (const name of names) {
+    fs.outputFileSync(path.join(tmp, name), '');
+  }
 
   const files = await fsSchema.readDir();
 
-  const ext = files.findIndex((f) => f === 'extension.x.sql');
-  const sch = files.findIndex((f) => f === 'schema.public.sql');
-  const tbl = files.findIndex((f) => f === 'table.public.a.sql');
-  const fk = files.findIndex((f) => f === 'fk.public.a.x_fk.sql');
-  const zzz = files.findIndex((f) => f === 'zzz_unprefixed.sql');
-
-  expect(ext).toBeLessThan(sch);
-  expect(sch).toBeLessThan(tbl);
-  expect(tbl).toBeLessThan(fk);
-  expect(fk).toBeLessThan(zzz);
+  // extension -> schema -> type -> sequence -> function -> table -> fk -> view
+  expect(files).toEqual([
+    'extension.x.sql',
+    'schema.public.sql',
+    'type.public.mood.sql',
+    'sequence.public.a_id_seq.sql',
+    'function.public.f.sql',
+    'table.public.a.sql',
+    'fk.public.a.sql',
+    'view.public.v.sql',
+    'zzz_unprefixed.sql',
+  ]);
 });
 
 // ---------------------------------------------------------------------------
