@@ -4,14 +4,25 @@ nodeLinker: hoisted
 # development-scope transitive copy whose parent pins it, so a plain in-range
 # refresh cannot reach any of them. Each entry MUST carry a GHSA reference so
 # the carve-out can be dropped once the parent ships the patched version.
+#
+# Prefer bumping the parent over adding an entry here: an override that forces
+# a version its parent never declared is a standing compatibility risk, and a
+# parent that has already moved on makes the carve-out permanent dead config.
+# The undici entry lived here until testcontainers 12 arrived declaring undici
+# ^8.9.0, which retired it. The uuid advisory never needed an entry at all: the
+# same upgrade brought dockerode 5, which dropped its uuid dependency outright.
 overrides:
   # GHSA-52cp-r559-cp3m (HIGH) + GHSA-h67p-54hq-rp68 (MED): js-yaml prototype
   # pollution / unsafe type resolution, both fixed on the 3.x line in 3.15.0.
-  'js-yaml@>=3.0.0 <3.15.0': 3.15.0
-  # GHSA-vxpw-j846-p89q / GHSA-hm92-r4w5-c3mj / GHSA-vmh5-mc38-953g /
-  # GHSA-35p6-xmwp-9g52 / GHSA-g8m3-5g58-fq7m / GHSA-p88m-4jfj-68fv: undici
-  # request-smuggling and redirect/proxy-auth leaks (<7.28.0).
-  'undici@>=7.0.0 <7.28.0': 7.28.0
+  # GHSA-5p4m-2wfm-xmqj (HIGH): quadratic CPU in !!omap resolution — the 5.x
+  # fix was never backported, so the 3.x line needed its own patch in 3.15.1.
+  # Only the 3.x line is installed (via eslint 7), hence no 4.x entry.
+  'js-yaml@>=3.0.0 <3.15.1': 3.15.1
+  # GHSA-rf6f-7fwh-wjgh (HIGH): flatted prototype pollution via parse().
+  # Fixed only on 3.x, so this crosses flat-cache@2.0.1's declared ^2.0.0.
+  # Safe here: flat-cache does a bare require('flatted') and touches only
+  # .parse/.stringify, which flatted 3's exports map still resolves to CJS.
+  'flatted@<3.4.2': 3.4.2
   # GHSA-fx2h-pf6j-xcff (HIGH) + GHSA-v6wh-96g9-6wx3 (MED): vite
   # server.fs.deny bypass on Windows alternate paths + launch-editor NTLMv2
   # hash disclosure (>=8.0.0 <=8.0.15). Transitive via vitest.
