@@ -35,19 +35,28 @@ afterAll(async () => {
   fs.removeSync(dir);
 });
 
-test('a file that only needs reordering still restores', async () => {
-  // view.* sorts last, so this already works by ordering; assert the retry path
-  // itself by giving a later-sorting table a dependency on an earlier one.
-  fs.outputFileSync(path.join(dir, 'table.public.a.sql'), 'create table public.a (id bigint primary key);');
-  fs.outputFileSync(path.join(dir, 'view.public.v.sql'), 'CREATE OR REPLACE VIEW public.v AS SELECT id FROM public.a;');
+test('a file whose dependency sorts after it is requeued and then succeeds', async () => {
+  // The bucket order has to actually be violated for the retry path to run, so the
+  // dependency lives under an unknown prefix, which sorts last. table.* is attempted
+  // first, fails, goes to the back of the queue, and succeeds on the second pass.
+  fs.outputFileSync(
+    path.join(dir, 'table.public.needs_later.sql'),
+    'create table public.needs_later (id bigint primary key references public.arrives_later(id));'
+  );
+  fs.outputFileSync(
+    path.join(dir, 'zzz.public.arrives_later.sql'),
+    'create table public.arrives_later (id bigint primary key);'
+  );
 
   await client.switchDatabase('postgres');
   await client.ensureEmptyDb(DB);
   await client.restoreSchema({ src: dir });
 
   await client.switchDatabase(DB);
-  const rows = await client.rows<{ count: string }>(`SELECT count(*) AS count FROM pg_views WHERE viewname = 'v'`);
-  expect(rows[0].count).toBe('1');
+  const rows = await client.rows<{ count: string }>(
+    `SELECT count(*) AS count FROM pg_tables WHERE tablename IN ('needs_later', 'arrives_later')`
+  );
+  expect(rows[0].count).toBe('2');
 });
 
 test('reports every unapplied file with its own error instead of only the last', async () => {

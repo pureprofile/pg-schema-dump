@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
+import { inScopeFunctionOidsSql } from './scope-sql';
 
 export interface View {
   schema: string;
@@ -38,9 +39,10 @@ export async function collectViews(
   //
   // Relations are not the only thing a view body can name - it can call a function
   // or read a sequence too, and either being absent fails the CREATE VIEW just the
-  // same. Functions are matched against what the function collector would keep
-  // (reachable from an in-scope table, or in a wholesale schema); anything else is
-  // treated as out of scope.
+  // same. Whether a function will actually be dumped comes from
+  // inScopeFunctionOidsSql, the same set the function collector uses, so a view
+  // calling a helper reached only through another in-scope function is not wrongly
+  // excluded.
   const result = await client.query<View & { cause: string | null }>(`
     SELECT
       n.nspname AS "schema",
@@ -67,22 +69,7 @@ export async function collectViews(
           WHERE rw.ev_class = c.oid
             AND dep.refclassid = 'pg_proc'::regclass
             AND fn.nspname NOT IN ('pg_catalog', 'information_schema')
-            AND NOT ${scope.includedSchemaPredicate('fn.nspname')}
-            AND NOT ${scope.functionPredicate('fn.nspname', 'fp.proname')}
-            AND NOT EXISTS (
-              SELECT 1
-              FROM pg_depend d2
-              LEFT JOIN pg_attrdef ad ON d2.classid = 'pg_attrdef'::regclass AND ad.oid = d2.objid
-              LEFT JOIN pg_constraint co ON d2.classid = 'pg_constraint'::regclass AND co.oid = d2.objid
-              LEFT JOIN pg_rewrite rw2 ON d2.classid = 'pg_rewrite'::regclass AND rw2.oid = d2.objid
-              LEFT JOIN pg_trigger tg ON d2.classid = 'pg_trigger'::regclass AND tg.oid = d2.objid
-              LEFT JOIN pg_index ix ON d2.classid = 'pg_class'::regclass AND ix.indexrelid = d2.objid
-              JOIN pg_class rc ON rc.oid = COALESCE(ad.adrelid, co.conrelid, rw2.ev_class, tg.tgrelid, ix.indrelid)
-              JOIN pg_namespace rn ON rn.oid = rc.relnamespace
-              WHERE d2.refclassid = 'pg_proc'::regclass
-                AND d2.refobjid = fp.oid
-                AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
-            )
+            AND fp.oid NOT IN (${inScopeFunctionOidsSql(scope)})
         ) causes
       ) AS "cause"
     FROM pg_class c

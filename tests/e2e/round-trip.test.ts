@@ -116,8 +116,8 @@ test('truncateTables on destination db completes without error', async () => {
   await client.truncateTables(DST_DB);
 });
 
-// The two shapes below are taken from the real legacy database this tool has to
-// dump. Both used to be silently dropped or to fail the restore outright.
+// Two shapes that legacy schemas hit in practice, and that this tool used to either
+// silently drop or fail the restore on.
 test('restores a foreign key cycle and a multi-column key referencing a UNIQUE constraint', async () => {
   const cycleSrc = 'pgsd-rt-hard-src';
   const cycleDst = 'pgsd-rt-hard-dst';
@@ -129,26 +129,24 @@ test('restores a foreign key cycle and a multi-column key referencing a UNIQUE c
 
     // mutually referencing tables: neither can be created with its foreign key
     // already in place, so all tables must exist before any key is added
-    await client.query(`CREATE TABLE instance (id bigserial primary key, theme_id bigint)`);
-    await client.query(`CREATE TABLE theme (id bigserial primary key, instance_id bigint)`);
-    await client.query(`ALTER TABLE instance ADD CONSTRAINT inst_theme_fk FOREIGN KEY (theme_id) REFERENCES theme(id)`);
-    await client.query(
-      `ALTER TABLE theme ADD CONSTRAINT theme_inst_fk FOREIGN KEY (instance_id) REFERENCES instance(id)`
-    );
+    await client.query(`CREATE TABLE node (id bigserial primary key, label_id bigint)`);
+    await client.query(`CREATE TABLE label (id bigserial primary key, node_id bigint)`);
+    await client.query(`ALTER TABLE node ADD CONSTRAINT node_label_fk FOREIGN KEY (label_id) REFERENCES label(id)`);
+    await client.query(`ALTER TABLE label ADD CONSTRAINT label_node_fk FOREIGN KEY (node_id) REFERENCES node(id)`);
 
     // a composite primary key
-    await client.query(`CREATE TABLE auth_data (auth_method_id bigint, account_holder_id bigint,
-      PRIMARY KEY (auth_method_id, account_holder_id))`);
+    await client.query(`CREATE TABLE membership (role_id bigint, member_id bigint,
+      PRIMARY KEY (role_id, member_id))`);
 
     // a two-column foreign key whose target is a plain UNIQUE constraint rather
     // than the primary key. Postgres rejects the key unless that exact UNIQUE
     // constraint exists, so dropping it makes the restore fail, not just drift.
-    await client.query(`CREATE TABLE platform (id bigint primary key, tenant_id bigint,
-      CONSTRAINT plat_uk UNIQUE (tenant_id, id))`);
-    await client.query(`CREATE TABLE barred (id bigserial primary key, tenant_id bigint, platform_id bigint,
-      CONSTRAINT barred_plat_fk FOREIGN KEY (tenant_id, platform_id) REFERENCES platform(tenant_id, id))`);
-    await client.query(`CREATE TABLE checked (id bigserial primary key, amount numeric,
-      CONSTRAINT checked_amount_chk CHECK (amount > (0)::numeric))`);
+    await client.query(`CREATE TABLE widget (id bigint primary key, tenant_id bigint,
+      CONSTRAINT widget_uk UNIQUE (tenant_id, id))`);
+    await client.query(`CREATE TABLE child_ref (id bigserial primary key, tenant_id bigint, widget_id bigint,
+      CONSTRAINT child_widget_fk FOREIGN KEY (tenant_id, widget_id) REFERENCES widget(tenant_id, id))`);
+    await client.query(`CREATE TABLE bounded (id bigserial primary key, amount numeric,
+      CONSTRAINT bounded_amount_chk CHECK (amount > (0)::numeric))`);
 
     await client.switchDatabase(cycleSrc);
     await client.dumpSchema({ out: dir });
@@ -160,22 +158,22 @@ test('restores a foreign key cycle and a multi-column key referencing a UNIQUE c
     await client.switchDatabase(cycleDst);
     const constraints = await client.rows<{ name: string; def: string }>(`
       SELECT conname AS "name", pg_get_constraintdef(oid) AS "def" FROM pg_constraint
-      WHERE conname IN ('inst_theme_fk','theme_inst_fk','auth_data_pkey','plat_uk','barred_plat_fk','checked_amount_chk')
+      WHERE conname IN ('node_label_fk','label_node_fk','membership_pkey','widget_uk','child_widget_fk','bounded_amount_chk')
       ORDER BY 1
     `);
     const byName: { [name: string]: string } = {};
     for (const row of constraints) {
       byName[row.name] = row.def;
     }
-    expect(byName.auth_data_pkey).toBe('PRIMARY KEY (auth_method_id, account_holder_id)');
-    expect(byName.plat_uk).toBe('UNIQUE (tenant_id, id)');
-    expect(byName.barred_plat_fk).toBe('FOREIGN KEY (tenant_id, platform_id) REFERENCES platform(tenant_id, id)');
-    expect(byName.checked_amount_chk).toBe('CHECK ((amount > (0)::numeric))');
-    expect(byName.inst_theme_fk).toBeDefined();
-    expect(byName.theme_inst_fk).toBeDefined();
+    expect(byName.membership_pkey).toBe('PRIMARY KEY (role_id, member_id)');
+    expect(byName.widget_uk).toBe('UNIQUE (tenant_id, id)');
+    expect(byName.child_widget_fk).toBe('FOREIGN KEY (tenant_id, widget_id) REFERENCES widget(tenant_id, id)');
+    expect(byName.bounded_amount_chk).toBe('CHECK ((amount > (0)::numeric))');
+    expect(byName.node_label_fk).toBeDefined();
+    expect(byName.label_node_fk).toBeDefined();
 
     // the CHECK constraint is enforced, not merely present
-    await expect(client.query(`INSERT INTO checked (amount) VALUES (-1)`)).rejects.toThrow(/checked_amount_chk/);
+    await expect(client.query(`INSERT INTO bounded (amount) VALUES (-1)`)).rejects.toThrow(/bounded_amount_chk/);
   } finally {
     try {
       await client.switchDatabase('postgres');

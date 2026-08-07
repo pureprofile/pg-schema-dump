@@ -31,6 +31,7 @@ export async function collectTriggers(
       AND t.tgenabled = 'O'
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
       AND ${scope.tablePredicate('n.nspname', 'c.relname')}
+    ORDER BY 1, 2, 3
   `);
   return result.rows;
 }

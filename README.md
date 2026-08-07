@@ -74,8 +74,8 @@ Dumping a whole legacy database can produce thousands of files, most of them irr
 
 ```json
 {
-  "schemas": ["fraud", "topup"],
-  "tables": ["public.panel", "public.account_holder"],
+  "schemas": ["billing", "archive"],
+  "tables": ["public.orders", "public.customers"],
   "functions": []
 }
 ```
@@ -97,8 +97,8 @@ What a scope pulls in alongside the tables you named:
 A foreign key whose target table is out of scope is **omitted rather than emitted**, because a key pointing at a table the dump does not contain cannot be restored. Every omission is logged:
 
 ```
-scope: dropped FK public.panel.hydration_strategy_id -> profilers.hydration_strategy (target out of scope)
-scope: excluded view public.quota_cell_view (depends on out-of-scope relation public.campaign_target_quota)
+scope: dropped FK public.orders.pricing_rule_id -> pricing.rule (target out of scope)
+scope: excluded view public.order_summary (depends on out-of-scope public.shipment)
 ```
 
 Read that log when you widen a scope — it tells you what you are still missing.

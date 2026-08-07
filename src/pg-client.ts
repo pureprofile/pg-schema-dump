@@ -13,7 +13,7 @@ import { collectTables } from './pg-objects/tables';
 import { collectViews } from './pg-objects/views';
 import { collectFunctions } from './pg-objects/functions';
 import { collectTriggers } from './pg-objects/triggers';
-import { collectSequences } from './pg-objects/sequences';
+import { collectSequences, OwnedBy } from './pg-objects/sequences';
 import { resolveScope, ResolvedScope, ScopeOptions } from './scope';
 
 const DEFAULT_SCHEMAS_TO_SKIP: string[] = ['pg_catalog', 'information_schema'];
@@ -211,18 +211,17 @@ export class PgClient {
     // A sequence owned by a column belongs to that column's table: its
     // ALTER SEQUENCE ... OWNED BY has to run after the table exists, so it is
     // emitted inside the table's file rather than the sequence's own.
-    const ownedSequencesByTable: { [key: string]: Array<{ schema: string; name: string; ownedBy: string }> } = {};
+    const ownedSequencesByTable: { [key: string]: Array<{ schema: string; name: string; ownedBy: OwnedBy }> } = {};
     for (const sequence of sequences) {
-      if (!sequence.ownedBy) {
+      const ownedBy = sequence.ownedBy;
+      if (!ownedBy) {
         continue;
       }
-      // ownedBy is 'schema.table.column'
-      const parts = sequence.ownedBy.split('.');
-      const key = tableKey(parts[0], parts[1]);
+      const key = tableKey(ownedBy.schema, ownedBy.table);
       (ownedSequencesByTable[key] = ownedSequencesByTable[key] || []).push({
         schema: sequence.schema,
         name: sequence.name,
-        ownedBy: sequence.ownedBy,
+        ownedBy,
       });
     }
 

@@ -89,7 +89,9 @@ test('collectSequences reports ownership separately from the CREATE statement', 
   const rows = await collectSequences(raw);
   const seq = rows.find((r) => r.name === 'parent_id_seq');
   expect(seq).toBeDefined();
-  expect(seq!.ownedBy).toBe('public.parent.id');
+  // Three fields, not a dotted string: any identifier may legally contain a dot, so
+  // flattening and re-splitting would attach the sequence to the wrong table.
+  expect(seq!.ownedBy).toEqual({ schema: 'public', table: 'parent', column: 'id' });
   // The ALTER SEQUENCE ... OWNED BY belongs in the owning table's file, not here:
   // it cannot run before that table exists, and a multi-statement file runs in a
   // single implicit transaction, so a failing ALTER would roll back the CREATE too.

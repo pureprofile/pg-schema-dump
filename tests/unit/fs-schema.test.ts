@@ -315,7 +315,9 @@ test('writeTable: creates table file and fk file', () => {
     ],
     indexes: [{ src: 'CREATE INDEX IF NOT EXISTS idx_orders_note ON public.orders (note)\n' }],
     triggers: [{ src: 'CREATE TRIGGER trg AFTER INSERT ON public.orders FOR EACH ROW EXECUTE FUNCTION audit()' }],
-    ownedSequences: [{ schema: 'public', name: 'orders_id_seq', ownedBy: 'public.orders.id' }],
+    ownedSequences: [
+      { schema: 'public', name: 'orders_id_seq', ownedBy: { schema: 'public', table: 'orders', column: 'id' } },
+    ],
   });
 
   const tableContent = fs.readFileSync(path.join(tmp, 'table.public.orders.sql'), 'utf8');

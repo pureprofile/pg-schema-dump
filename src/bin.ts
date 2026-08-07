@@ -5,7 +5,7 @@ import * as yargs from 'yargs';
 import * as pg from 'pg';
 import { log } from './utils';
 import { PgClient } from './index';
-import { loadScopeFile, mergeScope } from './scope-file';
+import { loadScopeFile, mergeScope, validateScope } from './scope-file';
 
 async function main() {
   const argv = yargs.options({
@@ -32,7 +32,9 @@ async function main() {
     includeTables: argv['include-table'] as string[] | undefined,
     includeFunctions: argv['include-function'] as string[] | undefined,
   };
-  const scope = mergeScope(fileScope, flagScope);
+  // Validated after merging so CLI flags face the same 'schema.name' rule as a
+  // manifest; a bare name would otherwise activate scoping and match nothing.
+  const scope = validateScope(mergeScope(fileScope, flagScope), 'scope options');
 
   const db = new pg.Client({ connectionString: url });
   await db.connect();

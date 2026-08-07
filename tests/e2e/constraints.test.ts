@@ -17,32 +17,32 @@ beforeAll(async () => {
 
   // Composite PK + a CHECK constraint on the same table.
   await admin.query(`
-    CREATE TABLE auth_data (
-      auth_method_id integer NOT NULL,
-      account_holder_id integer NOT NULL,
+    CREATE TABLE membership (
+      role_id integer NOT NULL,
+      member_id integer NOT NULL,
       secret text,
-      CONSTRAINT auth_data_pk PRIMARY KEY (auth_method_id, account_holder_id),
-      CONSTRAINT auth_data_secret_chk CHECK (secret IS NULL OR char_length(secret) > 0)
+      CONSTRAINT membership_pk PRIMARY KEY (role_id, member_id),
+      CONSTRAINT membership_secret_chk CHECK (secret IS NULL OR char_length(secret) > 0)
     )
   `);
 
   // A multi-column UNIQUE constraint that is an FK target (not the table's PK).
   await admin.query(`
-    CREATE TABLE platform (
+    CREATE TABLE widget (
       id serial PRIMARY KEY,
       code text NOT NULL,
       region text NOT NULL,
-      CONSTRAINT plat_uk UNIQUE (code, region)
+      CONSTRAINT widget_uk UNIQUE (code, region)
     )
   `);
 
-  // A multi-column FK referencing platform's UNIQUE constraint.
+  // A multi-column FK referencing widget's UNIQUE constraint.
   await admin.query(`
-    CREATE TABLE mobile_number_barred (
-      platform_code text NOT NULL,
-      platform_region text NOT NULL,
+    CREATE TABLE widget_block (
+      widget_code text NOT NULL,
+      widget_region text NOT NULL,
       phone text NOT NULL,
-      CONSTRAINT mnb_platform_fk FOREIGN KEY (platform_code, platform_region) REFERENCES platform (code, region)
+      CONSTRAINT widget_block_fk FOREIGN KEY (widget_code, widget_region) REFERENCES widget (code, region)
     )
   `);
 
@@ -68,15 +68,15 @@ afterAll(async () => {
 
 test('collectConstraints returns the composite primary key with both columns', async () => {
   const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
-  const pk = rows.find((r) => r.name === 'auth_data_pk');
+  const pk = rows.find((r) => r.name === 'membership_pk');
   expect(pk).toBeDefined();
   expect(pk!.type).toBe('p');
-  expect(pk!.def).toBe('PRIMARY KEY (auth_method_id, account_holder_id)');
+  expect(pk!.def).toBe('PRIMARY KEY (role_id, member_id)');
 });
 
 test('collectConstraints returns the multi-column unique constraint', async () => {
   const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
-  const uk = rows.find((r) => r.name === 'plat_uk');
+  const uk = rows.find((r) => r.name === 'widget_uk');
   expect(uk).toBeDefined();
   expect(uk!.type).toBe('u');
   expect(uk!.def).toBe('UNIQUE (code, region)');
@@ -84,7 +84,7 @@ test('collectConstraints returns the multi-column unique constraint', async () =
 
 test('collectConstraints returns the check constraint', async () => {
   const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
-  const chk = rows.find((r) => r.name === 'auth_data_secret_chk');
+  const chk = rows.find((r) => r.name === 'membership_secret_chk');
   expect(chk).toBeDefined();
   expect(chk!.type).toBe('c');
   expect(chk!.def.toUpperCase()).toContain('CHECK');
@@ -92,8 +92,8 @@ test('collectConstraints returns the check constraint', async () => {
 
 test('collectConstraints returns the multi-column FK targeting a plain UNIQUE constraint', async () => {
   const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
-  const fk = rows.find((r) => r.name === 'mnb_platform_fk');
+  const fk = rows.find((r) => r.name === 'widget_block_fk');
   expect(fk).toBeDefined();
   expect(fk!.type).toBe('f');
-  expect(fk!.def).toBe('FOREIGN KEY (platform_code, platform_region) REFERENCES platform(code, region)');
+  expect(fk!.def).toBe('FOREIGN KEY (widget_code, widget_region) REFERENCES widget(code, region)');
 });

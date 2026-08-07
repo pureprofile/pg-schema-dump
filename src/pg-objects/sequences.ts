@@ -2,6 +2,19 @@ import { Client } from 'pg';
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 import { quoteQualified } from '../fs-schema-helpers';
+
+/**
+ * The column a sequence belongs to.
+ *
+ * Kept as three fields rather than one dotted string: every Postgres identifier may
+ * legally contain a dot, so flattening and re-splitting would attach the sequence to
+ * the wrong table, or to none, and silently drop its OWNED BY.
+ */
+export interface OwnedBy {
+  schema: string;
+  table: string;
+  column: string;
+}
 import { inScopeFunctionOidsSql } from './scope-sql';
 
 export async function collectSequences(
@@ -66,7 +79,7 @@ export async function collectSequences(
     seqcycle: boolean;
     seqtype: string;
     seqcache: string;
-    ownedBy: string | null;
+    ownedBy: OwnedBy | null;
   }>(`
     SELECT
       n.nspname AS "schema",
@@ -79,7 +92,7 @@ export async function collectSequences(
       format_type(s.seqtypid, NULL) AS "seqtype",
       s.seqcache AS "seqcache",
       (
-        SELECT rn.nspname || '.' || rc.relname || '.' || a.attname
+        SELECT jsonb_build_object('schema', rn.nspname, 'table', rc.relname, 'column', a.attname)
         FROM pg_depend dep
         JOIN pg_class rc ON rc.oid = dep.refobjid
         JOIN pg_namespace rn ON rn.oid = rc.relnamespace
@@ -96,6 +109,7 @@ export async function collectSequences(
       AND ${notExtensionOwned('pg_class', 'c.oid')}
       ${skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``}
       ${scopeClause}
+    ORDER BY 1, 2
   `);
   return result.rows.map((row) => {
     return {

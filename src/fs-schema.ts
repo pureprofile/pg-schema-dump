@@ -13,6 +13,7 @@ import {
 import { sortBy } from 'lodash';
 import { Attribute } from './pg-objects/tables';
 import { Constraint } from './pg-objects/constraints';
+import { OwnedBy } from './pg-objects/sequences';
 
 export const F_EXTENSION_PREFIX = 'extension.';
 export const F_SCHEMA_PREFIX = 'schema.';
@@ -161,7 +162,7 @@ export class FsSchema {
     constraints?: Constraint[];
     indexes?: Array<{ src: string }>;
     triggers?: Array<{ src: string }>;
-    ownedSequences?: Array<{ schema: string; name: string; ownedBy: string }>;
+    ownedSequences?: Array<{ schema: string; name: string; ownedBy: OwnedBy }>;
   }) {
     const { schema, table, attributes } = t;
     const constraints = t.constraints || [];
@@ -183,13 +184,19 @@ export class FsSchema {
         ');',
       ].join('\n'),
     ];
-    for (const sequence of ownedSequences) {
-      statements.push(`ALTER SEQUENCE ${quoteQualified(sequence.schema, sequence.name)} OWNED BY ${sequence.ownedBy};`);
+    // Each group is sorted before emitting. None of the collector queries guarantee
+    // an order within a single table, and now that these all share one file the
+    // result would otherwise differ between dumps of the same schema.
+    for (const sequence of sortBy(ownedSequences, (seq) => `${seq.schema}.${seq.name}`)) {
+      const owner = `${quoteQualified(sequence.ownedBy.schema, sequence.ownedBy.table)}.${quoteIdent(
+        sequence.ownedBy.column
+      )}`;
+      statements.push(`ALTER SEQUENCE ${quoteQualified(sequence.schema, sequence.name)} OWNED BY ${owner};`);
     }
-    for (const index of indexes) {
+    for (const index of sortBy(indexes, (idx) => idx.src)) {
       statements.push(statementSql(index.src));
     }
-    for (const trigger of triggers) {
+    for (const trigger of sortBy(triggers, (trg) => trg.src)) {
       statements.push(statementSql(trigger.src));
     }
 

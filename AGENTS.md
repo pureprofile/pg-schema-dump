@@ -6,14 +6,29 @@ This file provides guidance to agents when working with code in this repository.
 
 A CLI + library (`@pureprofile/pg-schema-dump`) that dumps a Postgres schema into many small, individually-named `.sql` files. The goal is a **text-comparable / diffable** representation of a schema (deterministic ordering, normalized SQL) so two databases' schemas can be compared with a plain `diff`/git. It can also restore a dump back into a database.
 
+## This repository is public
+
+Nothing here may reference Pureprofile's internal domain. No business table,
+column or constraint names, no product or panel vocabulary, no internal rules or
+ticket detail — not in code, comments, tests, fixtures, README, commit messages or
+pull request descriptions.
+
+Test fixtures use neutral names (`orders`, `customers`, `widget`, `node`, `label`,
+`membership`, `billing`, `archive`) precisely for this reason. When a real schema
+prompts a fix, describe the _shape_ that broke — "a two-column foreign key
+referencing a UNIQUE constraint", "a sequence reached only from a trigger body" —
+never the table it was found on.
+
+The `@pureprofile/` npm scope in the package name is the one exception: that is the
+published identity.
+
 ## Commands
 
 - `npm run build` — `rimraf ./dist && tsc`. The published artifact is `dist/`; `main` is `dist/index.js`, `bin` is `dist/bin.js`.
-- `npm test` — full gate: `build` → `eslint` → `jest` (this is also `prepublishOnly`).
+- `pnpm test` — vitest, both projects (`unit` + `e2e`). `prepublishOnly` runs `build` → `eslint` → `test`.
 - `npm run eslint` — lint `./src` (`--ext=ts,tsx`).
-- `npm run jest` — runs jest **and** regenerates the README coverage badges (`jest:badges`).
-- `npm run jest:one` — jest **without** the badge regeneration; use this while iterating.
-- Run a single test: `npx jest src/__tests__/dump-db.test.ts` (add `-t "<name>"` to filter by test name).
+- `pnpm test:unit` — pure helper tests, no database needed. `pnpm test:e2e` — needs Docker.
+- Run a single test: `pnpm exec vitest run tests/e2e/dump-db.test.ts` (add `-t "<name>"` to filter).
 - `npm start` — build then run the CLI against `dist/bin.js`.
 
 CLI usage: `pg-schema-dump --url postgres://user:pass@host/db --out ./dir`. Without `--out`, output goes to `pg-schema-dump/<NODE_ENV>/<dbName>`.
@@ -28,9 +43,12 @@ CLI usage: `pg-schema-dump --url postgres://user:pass@host/db --out ./dir`. With
 
 Full process — the release PR, tagging, the GitHub Release, and npm OIDC trusted publishing — is documented in [docs/release-please.md](docs/release-please.md).
 
-## Tests require a live Postgres
+## Tests require Postgres
 
-`src/__tests__/dump-db.test.ts` connects to a **local** Postgres at `host: localhost` (no password) and creates/drops a real `pg-schema-dump-test` database. There is no mock — `npm test`/`jest` will fail without a reachable local Postgres superuser-capable connection. The pure-helper tests (`pg-helpers`, `fs-schema-helpers`) do not need a DB.
+The `e2e` project (`tests/e2e/`) starts an ephemeral Postgres via Testcontainers, so
+**Docker must be running**. Set `TEST_DB_HOST` (and optionally `TEST_DB_PORT` /
+`TEST_DB_USER` / `TEST_DB_PASSWORD`) to run against an existing instance instead.
+The unit tests (`tests/unit/`) are pure and need no database.
 
 ## Architecture
 

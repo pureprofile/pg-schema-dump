@@ -57,25 +57,38 @@ export function loadScopeFile(filePath: string): ScopeOptions {
   const tables = assertStringArray(manifest.tables, 'tables', filePath);
   const functions = assertStringArray(manifest.functions, 'functions', filePath);
 
-  // Both are "schema.name"; a bare name would silently match nothing.
-  for (const field of [
-    { name: 'tables', entries: tables, shape: 'schema.table' },
-    { name: 'functions', entries: functions, shape: 'schema.function' },
-  ]) {
+  return validateScope(
+    {
+      includeSchemas: schemas,
+      includeTables: tables,
+      includeFunctions: functions,
+    },
+    `scope file ${filePath}`
+  );
+}
+
+/**
+ * Rejects a scope that would silently match nothing.
+ *
+ * Applied to CLI flags as well as manifests: `--include-table orders` (no schema)
+ * activates scoping and then matches nothing, which produces a near-empty dump
+ * rather than an error - exactly the failure this catches for a manifest.
+ */
+export function validateScope(scope: ScopeOptions, source: string): ScopeOptions {
+  const fields = [
+    { name: 'tables', entries: scope.includeTables || [], shape: 'schema.table' },
+    { name: 'functions', entries: scope.includeFunctions || [], shape: 'schema.function' },
+  ];
+  for (const field of fields) {
     for (const entry of field.entries) {
       if (entry.split('.').length - 1 !== 1) {
         throw new Error(
-          `scope file ${filePath}: "${field.name}" entry "${entry}" must be in "${field.shape}" form (exactly one ".")`
+          `${source}: "${field.name}" entry "${entry}" must be in "${field.shape}" form (exactly one ".")`
         );
       }
     }
   }
-
-  return {
-    includeSchemas: schemas,
-    includeTables: tables,
-    includeFunctions: functions,
-  };
+  return scope;
 }
 
 export function mergeScope(...parts: Array<ScopeOptions | undefined>): ScopeOptions {
