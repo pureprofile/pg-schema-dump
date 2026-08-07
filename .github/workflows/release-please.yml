@@ -1,0 +1,46 @@
+name: Release Please
+
+concurrency: release_please
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write # OIDC token for npm trusted publishing
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Manifest mode: config-file and manifest-file default to
+      # release-please-config.json / .release-please-manifest.json, and token
+      # defaults to secrets.GITHUB_TOKEN — so no inputs are needed.
+      - uses: googleapis/release-please-action@v5
+        id: release
+
+      - uses: actions/checkout@v5
+        if: ${{ steps.release.outputs.release_created }}
+
+      - uses: pnpm/action-setup@v4
+        if: ${{ steps.release.outputs.release_created }}
+
+      - uses: actions/setup-node@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+        if: ${{ steps.release.outputs.release_created }}
+
+      # No NODE_AUTH_TOKEN: trusted publishing exchanges the OIDC token, and
+      # provenance is attached automatically. prepublishOnly runs
+      # build + eslint + vitest (incl. the testcontainers e2e) as the gate.
+      - run: npm publish
+        if: ${{ steps.release.outputs.release_created }}
