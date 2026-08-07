@@ -20,12 +20,20 @@ import { validateScope } from './scope-file';
 const DEFAULT_SCHEMAS_TO_SKIP: string[] = ['pg_catalog', 'information_schema'];
 const DEFAULT_FUNCTIONS_TO_SKIP: string[] = [];
 
-/** What a scope excluded from a dump. Both lists are empty for an unscoped dump. */
+/** What the dump left out. */
 export interface DumpOmissions {
-  /** Foreign keys omitted because the table they reference is out of scope. */
+  /**
+   * Foreign keys omitted because the table they reference is out of scope.
+   * Always empty for an unscoped dump - with no scope there is no out of scope.
+   */
   droppedForeignKeys: CollectedConstraints['droppedForeignKeys'];
 
-  /** Views omitted because something they read is out of scope. */
+  /**
+   * Views omitted because something they read is not in the dump. Usually a scope
+   * decision, but *not* only one: a view reading a relation in a `skipSchemas`
+   * schema is excluded on the same grounds, so this can be non-empty for an
+   * unscoped dump too.
+   */
   excludedViews: CollectedViews['excluded'];
 }
 

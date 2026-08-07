@@ -238,9 +238,10 @@ mis-derive the starting version. The manifest makes it explicit and deterministi
 release-please rewrites this file in each release PR.
 
 **`CHANGELOG.md`** — grouped by the changelog sections in the table above, newest
-version first, with links to each commit and PR. It is a build artifact of the
-commit history, not a document anyone writes; release-please created it with the
-`v2.0.0` release and prepends a section to it on every release since.
+version first, each entry linking back to the pull request or commit it came from.
+It is a build artifact of the commit history, not a document anyone writes;
+release-please created it with the `v2.0.0` release and prepends a section to it on
+every release since.
 
 ## 6. Files release-please owns — never hand-edit
 
@@ -348,11 +349,13 @@ version. Do not delete or move the tag, and do not expect a re-run to fix it (se
 - **Only one release run at a time.** `concurrency: release_please` (no
   `cancel-in-progress`) serialises runs so two pushes cannot race on the tag or the
   release PR.
-- **A release PR is not immediate.** Nothing appears until a releasing commit
-  lands, so a run of `chore`/`test`/`docs`/`ci` merges leaves `main` with no open
-  release PR and no error — that is the expected state, not a broken pipeline. The
-  PR appears when a `fix:`/`feat:`/`revert:`/breaking commit lands, or immediately
-  if you use a `Release-As:` footer per
+- **A release PR is not immediate.** Nothing _opens_ one until a releasing commit
+  lands, so a run of `chore`/`test`/`docs`/`ci` merges with no release PR already
+  open leaves `main` with none, and no error — that is the expected state, not a
+  broken pipeline. (If a release PR is already open, those merges do not close it;
+  they are folded into it as part of the range, without changing the version it
+  proposes.) The PR opens when a `fix:`/`feat:`/`revert:`/breaking commit lands, or
+  immediately if you use a `Release-As:` footer per
   [How to force a release](#8-how-to-force-a-release).
 - **Releases only ever come from `main`.** Both jobs carry
   `if: github.ref == 'refs/heads/main'`, so a `workflow_dispatch` aimed at a feature

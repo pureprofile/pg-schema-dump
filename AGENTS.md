@@ -43,7 +43,7 @@ Commit message _format_ is a separate, equally hard requirement, and is covered 
 - `pnpm test` — vitest, both projects (`unit` + `e2e`). `prepublishOnly` runs `build` → `eslint` → `test`.
 - `npm run eslint` — lint `./src` (`--ext=ts,tsx`).
 - `pnpm test:unit` — pure helper tests, no database needed. `pnpm test:e2e` — needs Docker.
-- `pnpm test:coverage` — what CI actually runs. [vitest.config.ts](vitest.config.ts) gates coverage at **90%** lines/statements/functions across `src` as a whole (`perFile: false`, `src/bin.ts` excluded), so a change that adds an untested branch passes `pnpm test` locally and still fails CI. Run this before pushing.
+- `pnpm test:coverage` — what CI actually runs. [vitest.config.ts](vitest.config.ts) gates coverage at **90%** lines/statements/functions. The gate is on the aggregate across `src` (`perFile: false`, `src/bin.ts` excluded, no branch threshold), so it is a floor against erosion, not a per-change standard — a small untested addition can slip under it on the totals. Run this before pushing; `pnpm test` alone will not tell you.
 - Run a single test: `pnpm exec vitest run tests/e2e/dump-db.test.ts` (add `-t "<name>"` to filter).
 - `npm start` — build then run the CLI against `dist/bin.js`.
 
@@ -53,17 +53,20 @@ CLI usage: `pg-schema-dump --url postgres://user:pass@host/db --out ./dir`. With
 
 Work on a branch and merge through a PR. **Never commit directly to `main`.** This is not merely
 convention: `main` has no branch protection ([docs/release-please.md](docs/release-please.md) §3),
-so a direct push is technically possible — and it bypasses the `PR Title` check, the only thing
-validating the commit subject that release-please parses. The change then lands on `main` and is
-never released.
+so a direct push is technically possible — and it is the one path that reaches `main` with the
+subject unchecked. The release workflow still runs, so a direct push with a conventional subject
+does release normally; the risk is the other case, where a non-conventional subject that the `PR
+Title` check would have rejected lands instead, and release-please silently parses nothing from it.
 
-Two existing rules apply to the branch name, the PR title and the PR body alike:
+Two existing rules govern a PR here:
 
-- **No tracker reference**, anywhere, not even in a footer — see [No tracker references](#no-tracker-references).
-- **The PR title must be a Conventional Commit**, because squash is the only merge method and the
-  title becomes the commit subject verbatim — see [Releases](#releases--conventional-commits-are-mandatory).
-  Pick the type from what the change actually ships: a PR that adds to the public API is a `feat:`
-  even when most of its diff is prose.
+- **No tracker reference** in the branch name, PR title, or PR body — anywhere, not even in a
+  footer. See [No tracker references](#no-tracker-references).
+- **The PR title specifically must be a Conventional Commit**, because squash is the only merge
+  method and the title becomes the commit subject verbatim — see
+  [Releases](#releases--conventional-commits-are-mandatory). This constrains the title only; branch
+  names and PR bodies are free-form (subject to the rule above). Pick the type from what the change
+  actually ships: a PR that adds to the public API is a `feat:` even when most of its diff is prose.
 
 ### Documentation is part of the change, not a follow-up
 
@@ -75,7 +78,7 @@ already produced stale docs here:
   where callers could not see or name what the function gave back.
 - **A change to the release process or a workflow updates [docs/release-please.md](docs/release-please.md).**
   It is declared the source of truth for that topic, so nothing else contradicts it when it drifts;
-  it went two releases still describing the repo as having never cut an automated one.
+  it went a whole release cycle still describing the repo as having never cut an automated one.
 
 Also update this file when a change alters the architecture, the commands, or a convention
 described above.
@@ -115,7 +118,7 @@ that pin raised first.
 Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by `PgClient.dumpSchema`.
 
 - `src/index.ts` — the entire public surface: the `PgClient` class and the `DumpOmissions` type it returns. Nothing else is re-exported, so anything a consumer needs to name must be added here deliberately.
-- `src/bin.ts` — the CLI entrypoint (`#!/usr/bin/env node`), and the only place scope arrives from a user. yargs defines `--url` (required), `--out`, `--scope-file` and the repeatable `--include-schema` / `--include-table` / `--include-function`; a manifest read by `loadScopeFile` is combined with those flags by `mergeScope`, the result goes through `validateScope`, and only then is `PgClient` constructed. The `--out` default resolves `current_database()` over a throwaway `pg.Client` first. Excluded from coverage, so logic worth testing belongs in a module it calls rather than here.
+- `src/bin.ts` — the CLI entrypoint (`#!/usr/bin/env node`); one of the two ways a scope arrives from outside, the other being the `scope` constructor option a library caller passes. yargs defines `--url` (required), `--out`, `--scope-file` and the repeatable `--include-schema` / `--include-table` / `--include-function`; a manifest read by `loadScopeFile` is combined with those flags by `mergeScope`, the result goes through `validateScope`, and only then is `PgClient` constructed. The `--out` default resolves `current_database()` over a throwaway `pg.Client` first. Excluded from coverage, so logic worth testing belongs in a module it calls rather than here.
 - `src/pg-client.ts` — `PgClient`. Holds connection config (parses a URL via `pg-connection-string`, or takes a `pg.ClientConfig`). Key design point: **connections are not kept open** — `query()` does `connect → query → end` each call (see commit `v1.1.0`). `dumpSchema` is the exception: it opens one connection, runs all collectors in a single `Promise.all`, then ends. It returns a `DumpOmissions` (`{ droppedForeignKeys, excludedViews }`) as well as logging it, because `logger: null` is supported and a scope that silently dropped an FK is the costliest failure to find late — a new kind of omission belongs in that return value, not only in a log line. Also provides DB lifecycle helpers used by tests and consumers (`ensureEmptyDb`, `switchDatabase`, `dropDatabase`, `truncateTables`, `restoreSchema`).
 - `src/pg-objects/*.ts` — one `collect<Object>(client, opts)` per object kind (extensions, types, functions, indexes, sequences, tables, triggers, views, constraints). Each runs a raw `pg_catalog` query and returns plain rows. `tables.ts` builds each column via nested `jsonb_build_object` in SQL. Constraint and index DDL is **not** hand-assembled — `pg_get_constraintdef` / `pg_get_indexdef` produce it. To add/change what's captured, edit the relevant collector's query.
 - `src/pg-objects/scope-sql.ts` — **all shared scope SQL. Nothing here may be restated in a collector.** Two rounds of review found bugs that were exactly a collector hand-rolling its own variant of one of these and getting it subtly wrong, so if a collector needs one of these questions answered, it calls the function:
@@ -139,7 +142,7 @@ Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by 
    - **every table before any foreign key**, so FK cycles between tables restore cleanly;
    - indexes and triggers inline in the table file, which is safe precisely because functions already exist by then.
 
-   `restoreSchema` still requeues a failing file (chained views can need a second pass) and gives up once a full cycle makes no progress, reporting **every** unapplied file with its own error. It deliberately does not wrap the restore in a transaction — a failed statement would poison it, which is incompatible with requeueing.
+   `restoreSchema` still requeues a failing file — as many times as the queue comes round, not once; a chain of views can need several — and gives up only once a full cycle makes no progress, reporting **every** unapplied file with its own error. It deliberately does not wrap the restore in a transaction — a failed statement would poison it, which is incompatible with requeueing.
 
 ## Conventions
 

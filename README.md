@@ -143,12 +143,15 @@ new PgClient(config, {
 
 ### What a dump reports
 
-`dumpSchema` resolves to a `DumpOmissions` describing what the scope left out. Both lists are
-empty for an unscoped dump.
+`dumpSchema` resolves to a `DumpOmissions` describing what the dump left out.
 
 ```ts
 import { PgClient } from '@pureprofile/pg-schema-dump';
 import type { DumpOmissions } from '@pureprofile/pg-schema-dump';
+
+const client = new PgClient('postgres://user:pass@localhost/mydb', {
+  scope: { includeTables: ['public.orders'] },
+});
 
 const omissions: DumpOmissions = await client.dumpSchema({ out: './schema/mydb' });
 
@@ -157,15 +160,24 @@ for (const fk of omissions.droppedForeignKeys) {
   console.warn(`dropped ${fk.schema}.${fk.table}.${fk.name} -> ${fk.target}`);
 }
 for (const view of omissions.excludedViews) {
-  // { view, cause } — `cause` is the out-of-scope object the view reads
+  // { view, cause } — `cause` is a 'schema.name' the view reads that the dump does not contain
   console.warn(`excluded ${view.view} (needs ${view.cause})`);
 }
 ```
 
-These are returned as well as logged on purpose. `logger: null` is a supported option, and a
-scoped dump that quietly drops a foreign key or a view is the failure that costs the most to
-discover later — so a caller doing its own reporting gets a programmatic record rather than
-having to scrape the log.
+Two caveats on reading these:
+
+- **`cause` is the missing dependency, not necessarily the root of the problem.** Excluding one
+  view excludes whatever is built on top of it, and a view dropped that way reports the excluded
+  view it reads — so following a chain may take more than one step.
+- **`droppedForeignKeys` is always empty for an unscoped dump**, but `excludedViews` need not be:
+  a view reading a relation in a `skipSchemas` schema is excluded on the same grounds, scope or no
+  scope. Note also that the warning log is only written when a scope is active, so an unscoped dump
+  reports such a view here and nowhere else.
+
+These are returned as well as logged on purpose. `logger: null` is a supported option, and a dump
+that quietly drops a foreign key or a view is the failure that costs the most to discover later —
+so a caller doing its own reporting gets a programmatic record rather than having to scrape the log.
 
 ### Restoring a dump
 
@@ -277,9 +289,10 @@ One container is started for the whole e2e project, and the project runs single-
 file parallelism, so e2e tests share a single PostgreSQL instance rather than getting one each.
 
 **Coverage is gated.** [vitest.config.ts](vitest.config.ts) sets a 90% threshold on lines,
-statements and functions, measured across `src` as a whole (`perFile: false`, with `src/bin.ts`
-excluded). CI runs `pnpm test:coverage`, so new code without tests fails the build there — run it
-locally before pushing rather than finding out in CI.
+statements and functions, and CI runs `pnpm test:coverage`, so falling below it fails the build.
+The threshold is on the aggregate, not per file (`perFile: false`, with `src/bin.ts` excluded and
+no branch threshold), so a small untested addition can still pass on the totals — treat 90% as the
+floor it is, not as the standard for a change. Run it locally before pushing.
 
 ### Git hooks
 
