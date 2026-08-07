@@ -84,11 +84,20 @@ beforeAll(async () => {
   `);
   // Reads only in-scope things, so it stays.
   await admin.query(`CREATE VIEW keep.item_ids AS SELECT id FROM keep.item`);
+  // Reads another *view*. A view is never named by a table scope, so judging this
+  // dependency with the table predicate would drop the whole chain.
+  await admin.query(`CREATE VIEW keep.item_ids_chained AS SELECT id FROM keep.item_ids`);
+  // ...and a chain built on a view that does not survive has to fall with it.
+  await admin.query(`CREATE VIEW keep.regions_chained AS SELECT id FROM keep.item_regions`);
   await admin.end();
 
+  // A table list, not a schema list, on purpose. `includeSchemas: ['keep']` would
+  // make every object in `keep` satisfy the scope predicate directly, so the views
+  // and functions there would be kept by the plain "named schema" branch and none of
+  // the dependency-following below would be under test.
   const client = new PgClient(
     { ...connection, database: SRC_DB },
-    { logger: null, scope: { includeSchemas: ['keep'] } }
+    { logger: null, scope: { includeTables: ['keep.item'] } }
   );
   omissions = await client.dumpSchema({ out: dir });
   await client.end();
@@ -145,15 +154,26 @@ test('drops a foreign key whose target is out of scope, and reports it', () => {
 
 test('excludes a view reading an out-of-scope table, and reports it', () => {
   expect(files).not.toContain('view.keep.item_regions.sql');
-  expect(omissions.excludedViews).toHaveLength(1);
-  expect(omissions.excludedViews[0]).toMatchObject({
-    view: 'keep.item_regions',
-    cause: 'outside.region',
-  });
+  expect(omissions.excludedViews).toEqual(
+    expect.arrayContaining([{ view: 'keep.item_regions', cause: 'outside.region' }])
+  );
 });
 
 test('keeps a view whose dependencies are all in scope', () => {
   expect(files).toContain('view.keep.item_ids.sql');
+});
+
+test('keeps a view built on another kept view', () => {
+  // A view is never named by a table scope, so testing this dependency against the
+  // table predicate would drop every chain of views.
+  expect(files).toContain('view.keep.item_ids_chained.sql');
+});
+
+test('drops a view built on an excluded view, naming the view that took it down', () => {
+  expect(files).not.toContain('view.keep.regions_chained.sql');
+  expect(omissions.excludedViews).toEqual(
+    expect.arrayContaining([{ view: 'keep.regions_chained', cause: 'keep.item_regions' }])
+  );
 });
 
 test('the scoped dump restores into an empty database and the trigger sequence works', async () => {

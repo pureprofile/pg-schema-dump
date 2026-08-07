@@ -30,7 +30,31 @@ export function inScopeFunctionOidsSql(scope: ResolvedScope): string {
       JOIN pg_class rc ON rc.oid = COALESCE(ad.adrelid, co.conrelid, rw.ev_class, tg.tgrelid, ix.indrelid)
       JOIN pg_namespace rn ON rn.oid = rc.relnamespace
       WHERE dep.refclassid = 'pg_proc'::regclass
-        AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+        AND (
+          ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+          -- For a rewrite rule the owning relation is the *view*, which a table-list
+          -- scope never names. Judging it by the predicate alone would leave its
+          -- functions unseeded, and collectViews would then drop the view for
+          -- depending on a function this set says is absent - a view excluded purely
+          -- because it was excluded. So a view that reads nothing out of scope counts
+          -- as in scope here. Over-including costs one small file; the circularity
+          -- costs the view.
+          OR (
+            rc.relkind = 'v'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_rewrite vrw
+              JOIN pg_depend vdep ON vdep.objid = vrw.oid AND vdep.classid = 'pg_rewrite'::regclass
+              JOIN pg_class vdc ON vdc.oid = vdep.refobjid
+              JOIN pg_namespace vdn ON vdn.oid = vdc.relnamespace
+              WHERE vrw.ev_class = rc.oid
+                AND vdep.refclassid = 'pg_class'::regclass
+                AND vdep.refobjid <> rc.oid
+                AND vdc.relkind IN ('r','m','p','S')
+                AND NOT (${scope.tablePredicate('vdn.nspname', 'vdc.relname')})
+            )
+          )
+        )
       UNION
       SELECT sp.oid
       FROM pg_proc sp

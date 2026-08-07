@@ -27,6 +27,11 @@ export async function collectIndexes(
     // since per-table objects go into their table's file.
     `c.relkind = 'r'`,
     notExtensionOwned('pg_class', 'c.oid'),
+    // The table's ownership is not the index's. An extension may own an index on an
+    // ordinary table, and CREATE EXTENSION recreates it, so dumping it as well fails
+    // the restore on a duplicate. Both checks are needed: this one for the index,
+    // the one above for indexes sitting on a table that is itself skipped.
+    notExtensionOwned('pg_class', 'i.indexrelid'),
     options.skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``,
     scope.tablePredicate('n.nspname', 'c.relname'),
   ].filter((clause) => clause);

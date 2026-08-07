@@ -37,6 +37,10 @@ export async function collectConstraints(
     // collected and then silently dropped. Staying on 'r' keeps that impossible.
     `c.relkind = 'r'`,
     notExtensionOwned('pg_class', 'c.oid'),
+    // ...and the constraint's own ownership, which is not the table's: an extension
+    // may own a constraint on an ordinary table and recreate it itself on
+    // CREATE EXTENSION.
+    notExtensionOwned('pg_constraint', 'con.oid'),
     `NOT con.conislocal IS FALSE`, // skip constraints merely inherited from a parent
     skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``,
     scope.tablePredicate('n.nspname', 'c.relname'),

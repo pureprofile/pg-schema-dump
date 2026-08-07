@@ -1,5 +1,5 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { notExtensionOwned, pgQuoteStrings } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
 
 export async function collectTriggers(
@@ -29,6 +29,10 @@ export async function collectTriggers(
       n.oid = c.relnamespace
     WHERE NOT t.tgisinternal
       AND t.tgenabled = 'O'
+      -- An extension may own a trigger on an ordinary table and recreate it itself,
+      -- so dumping it into the table's file fails the restore on a duplicate. The
+      -- ownership that matters is the trigger's, not the table's.
+      AND ${notExtensionOwned('pg_trigger', 't.oid')}
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
       AND ${scope.tablePredicate('n.nspname', 'c.relname')}
     ORDER BY 1, 2, 3
