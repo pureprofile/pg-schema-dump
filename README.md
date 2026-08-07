@@ -88,10 +88,10 @@ The scope is a list, not a starting point — it is **not** expanded by followin
 
 What a scope pulls in alongside the tables you named:
 
-- **Sequences** owned by an in-scope table, or called by one of its column defaults. Not every sequence in the schema.
-- **Functions** reachable from in-scope tables — their trigger functions and column-default functions — plus anything in `functions`. Not every function in the schema, which on a large database is the difference between a hundred files and several hundred.
+- **Sequences** owned by an in-scope table, called by one of its column defaults, or named by `nextval()` inside the body of an in-scope function. That third path is not optional: a sequence reached only from a trigger body is invisible to the catalog's dependency graph, and omitting it fails the first insert that fires the trigger rather than failing the restore.
+- **Functions** reachable from in-scope tables — column defaults, CHECK constraints, expression indexes, trigger and rewrite-rule bodies — and then, recursively, the functions those functions call. Plus anything in `functions`. Not every function in the schema, which on a large database is the difference between a hundred files and several hundred.
 - **Indexes, triggers and constraints** of in-scope tables.
-- **Views** only when every relation they depend on is also in scope.
+- **Views** only when everything they read is in scope — relations _and_ functions, since a view calling a missing function fails to create just as surely as one reading a missing table. A view is judged purely by its dependencies, so a view living in a schema you never named is still dumped if everything it reads is in scope.
 - **Schemas** for everything included, so a restore has somewhere to put it.
 
 A foreign key whose target table is out of scope is **omitted rather than emitted**, because a key pointing at a table the dump does not contain cannot be restored. Every omission is logged:

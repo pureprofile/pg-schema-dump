@@ -14,6 +14,17 @@ export interface Attribute {
 }
 
 export interface Reference {
+  /**
+   * Display only - never emit this as an identifier.
+   *
+   * It comes from `confrelid::regclass`, whose text form depends on the session
+   * `search_path` (schema-qualified only when the schema is not on it) and which
+   * quotes itself only when it has to, so its single dot is not a separator anything
+   * may rely on. The executable foreign key DDL comes from `pg_get_constraintdef` in
+   * `constraints.ts`; this feeds only the `references ...` breadcrumb comment in
+   * `attributeSql`. Copy the `OwnedBy` shape in `sequences.ts` if a qualified name
+   * ever needs to become SQL again.
+   */
   table: string;
   attribute: Attribute;
 }

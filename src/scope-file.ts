@@ -41,7 +41,7 @@ export function loadScopeFile(filePath: string): ScopeOptions {
   // Reject unknown keys rather than ignoring them. A typo like "table" for
   // "tables" would otherwise leave the scope empty, which means inactive, which
   // means silently dumping the entire database instead of the intended subset.
-  // `$comment`-style keys are allowed so a manifest can document itself.
+  // Keys starting with `$` or `//` are allowed so a manifest can document itself.
   const known = ['schemas', 'tables', 'functions'];
   const unknown = Object.keys(parsed as Record<string, unknown>).filter(
     (key) => known.indexOf(key) === -1 && key.indexOf('$') !== 0 && key.indexOf('//') !== 0
@@ -86,6 +86,21 @@ export function validateScope(scope: ScopeOptions, source: string): ScopeOptions
           `${source}: "${field.name}" entry "${entry}" must be in "${field.shape}" form (exactly one ".")`
         );
       }
+    }
+  }
+  // Schemas are a bare name, so they need the opposite check: a qualified entry here
+  // is a "public.orders" pasted into the wrong list. It would activate the scope and
+  // then match no schema at all, which is worse than no scope - the tool believes it
+  // is dumping a subset while producing almost nothing.
+  for (const entry of scope.includeSchemas || []) {
+    if (entry.includes('.')) {
+      throw new Error(
+        `${source}: "schemas" entry "${entry}" must be a bare schema name (no ".") ` +
+          `- did you mean to put it in "tables"?`
+      );
+    }
+    if (entry.trim() === '') {
+      throw new Error(`${source}: "schemas" contains an empty entry`);
     }
   }
   return scope;

@@ -1,11 +1,4 @@
-import {
-  normalizedSrc,
-  quoteIdent,
-  quoteQualified,
-  quotedIfUnsafe,
-  sortedAttributes,
-  unquoted,
-} from '../../src/fs-schema-helpers';
+import { normalizedSrc, quoteIdent, quoteQualified, sortedAttributes, unquoted } from '../../src/fs-schema-helpers';
 
 test('normalizedSrc', () => {
   expect(normalizedSrc(null as any)).toBe(null);
@@ -20,13 +13,6 @@ test('normalizedSrc', () => {
 test('unquoted', () => {
   expect(unquoted(`xxx`)).toBe(`xxx`);
   expect(unquoted(`"xxx"`)).toBe(`xxx`);
-});
-
-test('quotedIfKeyword', () => {
-  expect(quotedIfUnsafe(`count`)).toBe(`"count"`);
-  expect(quotedIfUnsafe(`from`)).toBe(`"from"`);
-  expect(quotedIfUnsafe(`happy`)).toBe(`happy`);
-  expect(quotedIfUnsafe(`?column?`)).toBe(`"?column?"`);
 });
 
 test('sortedAttributes', () => {
@@ -70,8 +56,13 @@ test('sortedAttributes', () => {
 // ---------------------------------------------------------------------------
 // quoteIdent / quoteQualified
 // ---------------------------------------------------------------------------
-// quotedIfUnsafe only covers a hand-written keyword list, so identifiers read out
-// of the catalog need a quoter that is safe for every legal name.
+// Identifiers read out of the catalog need a quoter that is safe for every legal
+// name, not a hand-written keyword list.
+test('quoteIdent quotes a name containing a question mark', () => {
+  // e.g. the `?column?` Postgres assigns to an unnamed expression
+  expect(quoteIdent('?column?')).toBe('"?column?"');
+});
+
 test('quoteIdent leaves a plain lowercase identifier bare', () => {
   expect(quoteIdent('inventory_item')).toBe('inventory_item');
 });

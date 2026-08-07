@@ -142,6 +142,16 @@ test('validateScope rejects a function without a schema', () => {
   expect(() => validateScope({ includeFunctions: ['gen_id'] }, 'scope options')).toThrow('gen_id');
 });
 
+// Schemas need the opposite check to tables: a qualified entry is a table pasted
+// into the wrong list, which activates the scope and then matches no schema at all.
+test('validateScope rejects a qualified name in schemas', () => {
+  expect(() => validateScope({ includeSchemas: ['public.orders'] }, 'scope options')).toThrow('public.orders');
+});
+
+test('validateScope rejects an empty schema entry', () => {
+  expect(() => validateScope({ includeSchemas: ['  '] }, 'scope options')).toThrow('empty');
+});
+
 test('validateScope passes a well-formed scope through unchanged', () => {
   const scope = { includeSchemas: ['billing'], includeTables: ['public.orders'], includeFunctions: ['public.gen_id'] };
   expect(validateScope(scope, 'scope options')).toEqual(scope);

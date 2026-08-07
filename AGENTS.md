@@ -80,7 +80,7 @@ Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by 
 
 ### Two ordering concerns — keep them distinct
 
-1. **Dump determinism**: collectors `ORDER BY` in SQL and `sortedAttributes` sorts columns, so the same schema always yields byte-identical files (the whole point of the tool). Anything merged into a table file is sorted again at emission, because a collector's order is only guaranteed _across_ tables, not within one.
+1. **Dump determinism**: collectors `ORDER BY` in SQL and `sortedAttributes` sorts columns, so the same schema always yields byte-identical files (the whole point of the tool). Anything merged into a table file is sorted again at emission, keyed on the SQL text itself. That is belt-and-braces — the collectors already order by name, which is unique per table — so that changing a collector's `ORDER BY` cannot silently reshuffle a committed dump.
 2. **Restore dependency order**: `FsSchema.readDir` sorts by the `RESTORE_ORDER` prefix rank — extension → schema → type → sequence → function → table → fk → view. That order is what makes a dump replay in **one pass**, and each step of it is load-bearing:
 
    - **functions before tables**, applied under `SET check_function_bodies = off`, so a function body may reference a table that does not exist yet;

@@ -2,14 +2,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import autoBind from 'auto-bind';
 import { log } from './utils';
-import {
-  normalizedSrc,
-  quoteIdent,
-  quoteQualified,
-  quotedIfUnsafe,
-  sortedAttributes,
-  unquoted,
-} from './fs-schema-helpers';
+import { normalizedSrc, quoteIdent, quoteQualified, sortedAttributes, unquoted } from './fs-schema-helpers';
 import { sortBy } from 'lodash';
 import { Attribute } from './pg-objects/tables';
 import { Constraint } from './pg-objects/constraints';
@@ -128,13 +121,17 @@ export class FsSchema {
     this.outputFileSyncSafe(
       path.join(this.root, `${F_VIEW_PREFIX}${v.schema}.${v.name}`),
       'sql',
-      `CREATE OR REPLACE VIEW ${v.schema}.${v.name} AS\n${v.src}\n`
+      `CREATE OR REPLACE VIEW ${quoteQualified(v.schema, v.name)} AS\n${v.src}\n`
     );
     return v;
   }
 
   attributeSql({ name, type, isNotNull = false, defaultValue, references }: Attribute): string {
-    const safeName = quotedIfUnsafe(name);
+    // A column name sits in a bare identifier position, where a reserved word is a
+    // hard syntax error (`create table t (group int)` does not parse) and a
+    // mixed-case name silently folds to lowercase. quoteIdent covers every legal
+    // name; the short hand-written list this used to consult did not.
+    const safeName = quoteIdent(name);
     let refStr = null;
     if (references) {
       // foreign keys live in their own file, so this is only a breadcrumb
@@ -174,9 +171,12 @@ export class FsSchema {
     // pg_get_constraintdef already produced the definition, so it just needs naming
     const constraintSql = constraints.map((c) => `constraint ${quoteIdent(c.name)} ${c.def}`);
 
+    // The identifier is quoted but the file name is not: a reserved word survives
+    // unquoted here (`public.user` parses, because the qualification disambiguates
+    // it), but a mixed-case or punctuated name would silently fold to lowercase.
     const statements = [
       [
-        `create table ${schema}.${table} (`,
+        `create table ${quoteQualified(schema, unquoted(table))} (`,
         columnSql
           .concat(constraintSql)
           .map((e) => `  ${e}`)
@@ -184,9 +184,11 @@ export class FsSchema {
         ');',
       ].join('\n'),
     ];
-    // Each group is sorted before emitting. None of the collector queries guarantee
-    // an order within a single table, and now that these all share one file the
-    // result would otherwise differ between dumps of the same schema.
+    // Each group is sorted on the text about to be written. The collectors already
+    // order deterministically (by name, which is unique per table), so this is not
+    // load-bearing today - it keys the file's contents on the file's contents, so a
+    // later change to a collector's ORDER BY cannot silently reshuffle a dump that is
+    // meant to be diffed against its predecessor.
     for (const sequence of sortBy(ownedSequences, (seq) => `${seq.schema}.${seq.name}`)) {
       const owner = `${quoteQualified(sequence.ownedBy.schema, sequence.ownedBy.table)}.${quoteIdent(
         sequence.ownedBy.column

@@ -4,13 +4,13 @@ import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
 import { FsSchema } from './fs-schema';
 import { unquoted } from './fs-schema-helpers';
-import { collectConstraints } from './pg-objects/constraints';
+import { CollectedConstraints, collectConstraints } from './pg-objects/constraints';
 import { uniq } from 'lodash';
 import { collectIndexes } from './pg-objects/indexes';
 import { collectExtensions } from './pg-objects/extensions';
 import { collectTypes } from './pg-objects/types';
 import { collectTables } from './pg-objects/tables';
-import { collectViews } from './pg-objects/views';
+import { CollectedViews, collectViews } from './pg-objects/views';
 import { collectFunctions } from './pg-objects/functions';
 import { collectTriggers } from './pg-objects/triggers';
 import { collectSequences, OwnedBy } from './pg-objects/sequences';
@@ -18,6 +18,15 @@ import { resolveScope, ResolvedScope, ScopeOptions } from './scope';
 
 const DEFAULT_SCHEMAS_TO_SKIP: string[] = ['pg_catalog', 'information_schema'];
 const DEFAULT_FUNCTIONS_TO_SKIP: string[] = [];
+
+/** What a scope excluded from a dump. Both lists are empty for an unscoped dump. */
+export interface DumpOmissions {
+  /** Foreign keys omitted because the table they reference is out of scope. */
+  droppedForeignKeys: CollectedConstraints['droppedForeignKeys'];
+
+  /** Views omitted because something they read is out of scope. */
+  excludedViews: CollectedViews['excluded'];
+}
 
 export class PgClient {
   private _clientConfig: pg.ClientConfig;
@@ -142,7 +151,15 @@ export class PgClient {
     await this.switchDatabase(db);
   }
 
-  async dumpSchema({ out }: { out: string }) {
+  /**
+   * Dumps the schema into `out` and returns what the scope left behind.
+   *
+   * The omissions are returned, not only logged: `logger: null` is a supported
+   * option, and a scoped dump that silently drops a foreign key or a view is the
+   * failure mode that costs the most to discover later. A caller doing its own
+   * reporting needs a programmatic record.
+   */
+  async dumpSchema({ out }: { out: string }): Promise<DumpOmissions> {
     const fsSchema = new FsSchema(out, this._logger);
     this._logger?.info(`dumping contents into: ${out}`);
     fsSchema.clean();
@@ -258,22 +275,46 @@ export class PgClient {
     ]).map((schema) => fsSchema.writeSchema({ schema }));
 
     this._logger?.info(`finished dump of: ${await this.getCurrentDatabase()}`);
+
+    return {
+      droppedForeignKeys: collectedConstraints.droppedForeignKeys,
+      excludedViews: collectedViews.excluded,
+    };
   }
 
   async restoreSchema({ src }: { src: string }) {
     await this.connect();
+    let restoreError: unknown;
     try {
       await this._restoreSchema({ src });
-    } finally {
-      // Always hand the connection back with validation restored, even on a failed
-      // restore - otherwise the caller is left holding an open session with
-      // check_function_bodies still off.
-      try {
-        await this._client?.query(`SET check_function_bodies = on`);
-      } catch {
-        // the session is already unusable; nothing to restore
-      }
+    } catch (err) {
+      restoreError = err;
+    }
+
+    // Always hand the connection back with validation restored, even on a failed
+    // restore - otherwise the caller is left holding an open session with
+    // check_function_bodies still off.
+    //
+    // Cleanup runs outside a `finally` on purpose: a throwing `finally` *replaces*
+    // the exception in flight, so a socket that died with the restore would bury the
+    // per-file diagnostics under a generic close failure. Cleanup failures are
+    // logged, and the restore error always wins.
+    try {
+      await this._client?.query(`SET check_function_bodies = on`);
+    } catch (err) {
+      // Usually means the session is already unusable, but that is an assumption -
+      // a pooler refusing a session-level SET looks the same, and silently swallowing
+      // it would leave validation off with no trace of why.
+      this._logger?.warn(`failed to restore check_function_bodies: ${(err as Error).message}`);
+    }
+    try {
       await this.end();
+    } catch (err) {
+      this._logger?.warn(`failed to close the connection after restore: ${(err as Error).message}`);
+    }
+
+    if (restoreError) {
+      throw restoreError;
     }
   }
 
@@ -306,13 +347,19 @@ export class PgClient {
         fNames.shift();
         fNames.push(fName);
         sinceLastProgress += 1;
-        if (sinceLastProgress > fNames.length) {
+        // One full lap of the queue with nothing applied means no remaining file can
+        // ever succeed - the database state is unchanged, so another lap would repeat
+        // the same failures. Compared after the requeue, so the length is the lap.
+        if (sinceLastProgress >= fNames.length) {
           break;
         }
       }
     }
 
     if (fNames.length > 0) {
+      // Every name still queued got there by failing, so lastError is always
+      // populated here. The fallback only guards a future refactor of the loop above
+      // breaking that invariant - it should not be reachable today.
       const report = uniq(fNames)
         .map((fName) => `  - ${fName}: ${lastError[fName] ? lastError[fName].message : 'unknown error'}`)
         .join('\n');

@@ -15,15 +15,6 @@ export function unquoted(value: string) {
   return value;
 }
 
-const Keywords = ['count', 'end', 'from', 'limit', 'line', 'uuid', 'order'];
-
-export function quotedIfUnsafe(value: string) {
-  if (value.includes('?') || Keywords.includes(value.toLowerCase())) {
-    return `"${value}"`;
-  }
-  return value;
-}
-
 /**
  * Postgres words that cannot be a bare identifier.
  *
@@ -53,8 +44,7 @@ const ReservedWords = new Set(
 /**
  * Quotes an identifier the way Postgres itself does.
  *
- * Unlike `quotedIfUnsafe`, which only covers a short hand-written list, this is
- * safe for every legal identifier: anything that is not a bare lowercase
+ * Safe for every legal identifier: anything that is not a bare lowercase
  * `[a-z_][a-z0-9_$]*`, or that collides with a reserved word, gets double-quoted,
  * and embedded double quotes are doubled.
  *
