@@ -8,8 +8,9 @@ nodeLinker: hoisted
 # Prefer bumping the parent over adding an entry here: an override that forces
 # a version its parent never declared is a standing compatibility risk, and a
 # parent that has already moved on makes the carve-out permanent dead config.
-# The undici and uuid entries lived here until testcontainers 12 arrived with
-# undici ^8.9.0 and dockerode 5 (which dropped uuid outright), retiring both.
+# The undici entry lived here until testcontainers 12 arrived declaring undici
+# ^8.9.0, which retired it. The uuid advisory never needed an entry at all: the
+# same upgrade brought dockerode 5, which dropped its uuid dependency outright.
 overrides:
   # GHSA-52cp-r559-cp3m (HIGH) + GHSA-h67p-54hq-rp68 (MED): js-yaml prototype
   # pollution / unsafe type resolution, both fixed on the 3.x line in 3.15.0.
