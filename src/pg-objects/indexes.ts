@@ -22,7 +22,10 @@ export async function collectIndexes(
       SELECT 1 FROM pg_constraint con
       WHERE con.conindid = i.indexrelid AND con.contype IN ('p','u','x')
     )`,
-    `c.relkind IN ('r','p')`,
+    // Aligned with collectTables, which only returns 'r'. An index on a
+    // partitioned parent would otherwise be collected and then never written,
+    // since per-table objects go into their table's file.
+    `c.relkind = 'r'`,
     notExtensionOwned('pg_class', 'c.oid'),
     options.skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``,
     scope.tablePredicate('n.nspname', 'c.relname'),

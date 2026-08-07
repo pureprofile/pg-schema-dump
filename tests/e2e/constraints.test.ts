@@ -67,7 +67,7 @@ afterAll(async () => {
 });
 
 test('collectConstraints returns the composite primary key with both columns', async () => {
-  const rows = await collectConstraints(raw, { skipSchemas: [] });
+  const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
   const pk = rows.find((r) => r.name === 'auth_data_pk');
   expect(pk).toBeDefined();
   expect(pk!.type).toBe('p');
@@ -75,7 +75,7 @@ test('collectConstraints returns the composite primary key with both columns', a
 });
 
 test('collectConstraints returns the multi-column unique constraint', async () => {
-  const rows = await collectConstraints(raw, { skipSchemas: [] });
+  const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
   const uk = rows.find((r) => r.name === 'plat_uk');
   expect(uk).toBeDefined();
   expect(uk!.type).toBe('u');
@@ -83,7 +83,7 @@ test('collectConstraints returns the multi-column unique constraint', async () =
 });
 
 test('collectConstraints returns the check constraint', async () => {
-  const rows = await collectConstraints(raw, { skipSchemas: [] });
+  const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
   const chk = rows.find((r) => r.name === 'auth_data_secret_chk');
   expect(chk).toBeDefined();
   expect(chk!.type).toBe('c');
@@ -91,7 +91,7 @@ test('collectConstraints returns the check constraint', async () => {
 });
 
 test('collectConstraints returns the multi-column FK targeting a plain UNIQUE constraint', async () => {
-  const rows = await collectConstraints(raw, { skipSchemas: [] });
+  const { constraints: rows } = await collectConstraints(raw, { skipSchemas: [] });
   const fk = rows.find((r) => r.name === 'mnb_platform_fk');
   expect(fk).toBeDefined();
   expect(fk!.type).toBe('f');

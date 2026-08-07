@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
+import { quoteQualified } from '../fs-schema-helpers';
 
 export async function collectSequences(
   client: Client,
@@ -53,6 +54,8 @@ export async function collectSequences(
     seqmin: string;
     seqmax: string;
     seqcycle: boolean;
+    seqtype: string;
+    seqcache: string;
     ownedBy: string | null;
   }>(`
     SELECT
@@ -63,6 +66,8 @@ export async function collectSequences(
       s.seqmin AS "seqmin",
       s.seqmax AS "seqmax",
       s.seqcycle AS "seqcycle",
+      format_type(s.seqtypid, NULL) AS "seqtype",
+      s.seqcache AS "seqcache",
       (
         SELECT rn.nspname || '.' || rc.relname || '.' || a.attname
         FROM pg_depend dep
@@ -92,11 +97,13 @@ export async function collectSequences(
       // ALTER would roll the CREATE SEQUENCE back with it.
       ownedBy: row.ownedBy,
       src: `
-        CREATE SEQUENCE ${row.schema}.${row.name}
+        CREATE SEQUENCE ${quoteQualified(row.schema, row.name)}
+        AS ${row.seqtype}
         INCREMENT ${row.seqincrement}
         MINVALUE ${row.seqmin}
         MAXVALUE ${row.seqmax}
         START ${row.seqstart}
+        CACHE ${row.seqcache}
         ${row.seqcycle ? 'CYCLE' : 'NO CYCLE'}
       `.trim(),
     };

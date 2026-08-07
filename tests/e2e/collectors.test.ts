@@ -70,7 +70,8 @@ test('collectTypes returns mood enum, schema-qualified with ordered values', asy
   expect(mood).toBeDefined();
   expect(mood!.schema).toBe('public');
   expect(mood!.src.toUpperCase()).toContain('ENUM');
-  expect(mood!.src).toContain(`CREATE TYPE public."mood"`);
+  // identifiers are only quoted when they need it, as Postgres itself does
+  expect(mood!.src).toContain('CREATE TYPE public.mood');
   expect(mood!.src.indexOf('happy')).toBeLessThan(mood!.src.indexOf('sad'));
 });
 
@@ -135,13 +136,13 @@ test('collectIndexes excludes constraint-backed indexes (e.g. parent_pkey)', asy
 });
 
 test('collectViews with skipSchemas:[] contains parent_names', async () => {
-  const rows = await collectViews(raw, { skipSchemas: [] });
+  const { views: rows } = await collectViews(raw, { skipSchemas: [] });
   const names = rows.map((r) => r.name);
   expect(names).toContain('parent_names');
 });
 
 test('collectViews with non-empty skipSchemas still contains parent_names', async () => {
-  const rows = await collectViews(raw, { skipSchemas: ['pg_catalog', 'information_schema'] });
+  const { views: rows } = await collectViews(raw, { skipSchemas: ['pg_catalog', 'information_schema'] });
   const names = rows.map((r) => r.name);
   expect(names).toContain('parent_names');
 });

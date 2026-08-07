@@ -2,7 +2,14 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import autoBind from 'auto-bind';
 import { log } from './utils';
-import { normalizedSrc, unquoted, quotedIfUnsafe, sortedAttributes } from './fs-schema-helpers';
+import {
+  normalizedSrc,
+  quoteIdent,
+  quoteQualified,
+  quotedIfUnsafe,
+  sortedAttributes,
+  unquoted,
+} from './fs-schema-helpers';
 import { sortBy } from 'lodash';
 import { Attribute } from './pg-objects/tables';
 import { Constraint } from './pg-objects/constraints';
@@ -164,7 +171,7 @@ export class FsSchema {
 
     const columnSql = sortedAttributes(attributes).map((attribute) => this.attributeSql({ ...attribute, table }));
     // pg_get_constraintdef already produced the definition, so it just needs naming
-    const constraintSql = constraints.map((c) => `constraint ${quotedIfUnsafe(c.name)} ${c.def}`);
+    const constraintSql = constraints.map((c) => `constraint ${quoteIdent(c.name)} ${c.def}`);
 
     const statements = [
       [
@@ -177,7 +184,7 @@ export class FsSchema {
       ].join('\n'),
     ];
     for (const sequence of ownedSequences) {
-      statements.push(`ALTER SEQUENCE ${sequence.schema}.${sequence.name} OWNED BY ${sequence.ownedBy};`);
+      statements.push(`ALTER SEQUENCE ${quoteQualified(sequence.schema, sequence.name)} OWNED BY ${sequence.ownedBy};`);
     }
     for (const index of indexes) {
       statements.push(statementSql(index.src));
@@ -200,7 +207,10 @@ export class FsSchema {
       return t;
     }
     const sql = t.constraints
-      .map((c) => `ALTER TABLE ${t.schema}.${unquoted(t.table)} ADD CONSTRAINT ${quotedIfUnsafe(c.name)} ${c.def};`)
+      .map(
+        (c) =>
+          `ALTER TABLE ${quoteQualified(t.schema, unquoted(t.table))} ADD CONSTRAINT ${quoteIdent(c.name)} ${c.def};`
+      )
       .join('\n');
     this.outputFileSyncSafe(
       path.join(this.root, `${F_FOREIGN_KEY_PREFIX}${t.schema}.${unquoted(t.table)}`),

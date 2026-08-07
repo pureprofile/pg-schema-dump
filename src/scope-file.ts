@@ -37,16 +37,37 @@ export function loadScopeFile(filePath: string): ScopeOptions {
   }
 
   const manifest = parsed as ScopeManifest;
+
+  // Reject unknown keys rather than ignoring them. A typo like "table" for
+  // "tables" would otherwise leave the scope empty, which means inactive, which
+  // means silently dumping the entire database instead of the intended subset.
+  // `$comment`-style keys are allowed so a manifest can document itself.
+  const known = ['schemas', 'tables', 'functions'];
+  const unknown = Object.keys(parsed as Record<string, unknown>).filter(
+    (key) => known.indexOf(key) === -1 && key.indexOf('$') !== 0 && key.indexOf('//') !== 0
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `scope file ${filePath}: unknown key(s) ${unknown.map((k) => `"${k}"`).join(', ')}; ` +
+        `expected only ${known.map((k) => `"${k}"`).join(', ')}`
+    );
+  }
+
   const schemas = assertStringArray(manifest.schemas, 'schemas', filePath);
   const tables = assertStringArray(manifest.tables, 'tables', filePath);
   const functions = assertStringArray(manifest.functions, 'functions', filePath);
 
-  for (const table of tables) {
-    const dotCount = table.split('.').length - 1;
-    if (dotCount !== 1) {
-      throw new Error(
-        `scope file ${filePath}: "tables" entry "${table}" must be in "schema.table" form (exactly one ".")`
-      );
+  // Both are "schema.name"; a bare name would silently match nothing.
+  for (const field of [
+    { name: 'tables', entries: tables, shape: 'schema.table' },
+    { name: 'functions', entries: functions, shape: 'schema.function' },
+  ]) {
+    for (const entry of field.entries) {
+      if (entry.split('.').length - 1 !== 1) {
+        throw new Error(
+          `scope file ${filePath}: "${field.name}" entry "${entry}" must be in "${field.shape}" form (exactly one ".")`
+        );
+      }
     }
   }
 

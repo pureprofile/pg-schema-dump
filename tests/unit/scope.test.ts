@@ -12,7 +12,6 @@ test('resolveScope with no options is inactive and every predicate is permissive
   const scope = resolveScope();
   expect(scope.active).toBe(false);
   expect(scope.tablePredicate('n.nspname', 'c.relname')).toBe('true');
-  expect(scope.schemaPredicate('n.nspname')).toBe('true');
   expect(scope.functionPredicate('n.nspname', 'p.proname')).toBe('false');
 });
 
@@ -26,7 +25,6 @@ test('resolveScope schemas-only', () => {
   const scope = resolveScope({ includeSchemas: ['fraud', 'topup'] });
   expect(scope.active).toBe(true);
   expect(scope.tablePredicate('n.nspname', 'c.relname')).toBe("(n.nspname = ANY(ARRAY['fraud', 'topup']::text[]))");
-  expect(scope.schemaPredicate('n.nspname')).toBe("(n.nspname = ANY(ARRAY['fraud', 'topup']::text[]))");
 });
 
 test('resolveScope tables-only', () => {
@@ -35,7 +33,9 @@ test('resolveScope tables-only', () => {
   expect(scope.tablePredicate('n.nspname', 'c.relname')).toBe(
     "((n.nspname || '.' || c.relname) = ANY(ARRAY['public.panel', 'public.account']::text[]))"
   );
-  expect(scope.schemaPredicate('n.nspname')).toBe("(n.nspname = ANY(ARRAY['public']::text[]))");
+  // naming public.panel does not opt the whole public schema in - that distinction
+  // is what stops one table dragging in every sequence and enum in its schema
+  expect(scope.includedSchemaPredicate('n.nspname')).toBe('false');
 });
 
 test('resolveScope mixed schemas + tables', () => {

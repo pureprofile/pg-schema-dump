@@ -1,14 +1,37 @@
 import { Client } from 'pg';
 import { pgStringArray, pgQuoteString, pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
 import { resolveScope, ResolvedScope } from '../scope';
+import { quoteQualified } from '../fs-schema-helpers';
 
 export async function collectTypes(client: Client, options: { skipSchemas?: string[]; scope?: ResolvedScope } = {}) {
   const skipSchemas = options.skipSchemas || [];
   const scope = options.scope || resolveScope();
+  // An enum is in scope when its schema was opted into wholesale, or when a column
+  // of an in-scope table has that type. Scoping by schema membership instead both
+  // over-includes (every unrelated enum in a schema, because one of its tables was
+  // named) and under-includes (an enum a scoped table uses from *another* schema is
+  // missed, and the CREATE TABLE then fails). The column check also matches arrays
+  // of the enum (typelem) and domains over it (typbasetype).
+  const scopeClause = scope.active
+    ? `(
+        ${scope.includedSchemaPredicate('n.nspname')}
+        OR EXISTS (
+          SELECT 1
+          FROM pg_attribute a
+          JOIN pg_class rc ON rc.oid = a.attrelid AND rc.relkind = 'r'
+          JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+          JOIN pg_type at ON at.oid = a.atttypid
+          WHERE a.attnum > 0
+            AND NOT a.attisdropped
+            AND (at.oid = t.oid OR at.typelem = t.oid OR at.typbasetype = t.oid)
+            AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+        )
+      )`
+    : ``;
   const clauses = [
     notExtensionOwned('pg_type', 't.oid'),
     skipSchemas.length ? `n.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``,
-    scope.schemaPredicate('n.nspname'),
+    scopeClause,
   ].filter((clause) => clause);
   const result = await client.query<{
     schema: string;
@@ -37,7 +60,7 @@ export async function collectTypes(client: Client, options: { skipSchemas?: stri
     return {
       schema: row.schema,
       name: row.type_name,
-      src: `CREATE TYPE ${row.schema}."${row.type_name}" AS ENUM (${pgStringArray(row.enum_values).map(
+      src: `CREATE TYPE ${quoteQualified(row.schema, row.type_name)} AS ENUM (${pgStringArray(row.enum_values).map(
         pgQuoteString
       )})`,
     };
