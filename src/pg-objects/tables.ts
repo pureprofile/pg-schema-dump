@@ -1,5 +1,6 @@
 import { Client } from 'pg';
 import { pgQuoteStrings } from '../pg-helpers';
+import { resolveScope, ResolvedScope } from '../scope';
 
 export interface Attribute {
   table: string;
@@ -21,8 +22,10 @@ export async function collectTables(
   client: Client,
   options: {
     skipSchemas: string[];
+    scope?: ResolvedScope;
   }
 ) {
+  const scope = options.scope || resolveScope();
   const result = await client.query<{
     schema: string;
     table: string;
@@ -93,7 +96,11 @@ export async function collectTables(
                   r.conrelid = c.oid and
                   r.conkey = array[a.attnum] and
                   array_length(r.confkey, 1) = 1 and -- We want just single column refs
-                  r.contype = 'f'
+                  r.contype = 'f' and
+                  exists (
+                    select 1 from pg_class rc join pg_namespace rn on rn.oid = rc.relnamespace
+                    where rc.oid = r.confrelid and ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+                  )
                 limit 1
               )
             ) "attribute"
@@ -111,6 +118,7 @@ export async function collectTables(
       n.oid = c.relnamespace
     WHERE c.relkind = 'r'
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
+      AND ${scope.tablePredicate('n.nspname', 'c.relname')}
     ORDER BY 2, 3
   `);
   return result.rows;

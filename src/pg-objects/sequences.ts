@@ -1,42 +1,68 @@
 import { Client } from 'pg';
+import { pgQuoteStrings } from '../pg-helpers';
+import { resolveScope, ResolvedScope } from '../scope';
 
-export async function collectSequences(client: Client) {
+export async function collectSequences(
+  client: Client,
+  options: {
+    skipSchemas?: string[];
+    scope?: ResolvedScope;
+  } = {}
+) {
+  const skipSchemas = options.skipSchemas || [];
+  const scope = options.scope || resolveScope();
+  const scopeClause = scope.active
+    ? `
+      AND (
+        ${scope.schemaPredicate('n.nspname')}
+        OR EXISTS (
+          SELECT 1
+          FROM pg_depend dep
+          JOIN pg_attribute a ON a.attrelid = dep.refobjid AND a.attnum = dep.refobjsubid
+          JOIN pg_class rc ON rc.oid = dep.refobjid
+          JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+          WHERE dep.objid = c.oid
+            AND dep.classid = 'pg_class'::regclass
+            AND dep.refclassid = 'pg_class'::regclass
+            AND dep.deptype = 'a'
+            AND ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+        )
+      )
+    `
+    : ``;
   const result = await client.query<{
-    sequence_schema: string;
-    sequence_name: string;
-    data_type: string;
-    numeric_precision: number;
-    numeric_precision_radix: number;
-    numeric_scale: number;
-    start_value: string;
-    minimum_value: string;
-    maximum_value: string;
-    increment: string;
-    cycle_option: string;
+    schema: string;
+    name: string;
+    seqstart: string;
+    seqincrement: string;
+    seqmin: string;
+    seqmax: string;
+    seqcycle: boolean;
   }>(`
     SELECT
-      sequence_schema,
-      sequence_name,
-      data_type,
-      numeric_precision,
-      numeric_precision_radix,
-      numeric_scale,
-      start_value,
-      minimum_value,
-      maximum_value,
-      increment,
-      cycle_option
-    FROM information_schema.sequences
+      n.nspname AS "schema",
+      c.relname AS "name",
+      s.seqstart AS "seqstart",
+      s.seqincrement AS "seqincrement",
+      s.seqmin AS "seqmin",
+      s.seqmax AS "seqmax",
+      s.seqcycle AS "seqcycle"
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_sequence s ON s.seqrelid = c.oid
+    WHERE c.relkind = 'S'
+      ${skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(skipSchemas)})` : ``}
+      ${scopeClause}
   `);
   return result.rows.map((row) => {
     return {
-      schema: row.sequence_schema,
-      name: row.sequence_name,
+      schema: row.schema,
+      name: row.name,
       src: `
-        CREATE SEQUENCE ${row.sequence_schema}.${row.sequence_name}
-        INCREMENT ${row.increment}
-        MINVALUE ${row.minimum_value}
-        MAXVALUE ${row.maximum_value}
+        CREATE SEQUENCE ${row.schema}.${row.name}
+        INCREMENT ${row.seqincrement}
+        MINVALUE ${row.seqmin}
+        MAXVALUE ${row.seqmax}
       `.trim(),
     };
   });

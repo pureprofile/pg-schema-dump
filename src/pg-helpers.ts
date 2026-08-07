@@ -9,7 +9,7 @@ export function all<T>(fn: (arg: T) => T) {
 
 export function pgQuoteString(item: string): string {
   if (typeof item === 'string') {
-    return `'${item}'`;
+    return `'${item.replace(/'/g, `''`)}'`;
   }
   return item;
 }

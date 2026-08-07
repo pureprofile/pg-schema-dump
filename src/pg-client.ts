@@ -12,6 +12,7 @@ import { collectViews } from './pg-objects/views';
 import { collectFunctions } from './pg-objects/functions';
 import { collectTriggers } from './pg-objects/triggers';
 import { collectSequences } from './pg-objects/sequences';
+import { resolveScope, ResolvedScope, ScopeOptions } from './scope';
 
 const DEFAULT_SCHEMAS_TO_SKIP: string[] = ['pg_catalog', 'information_schema'];
 const DEFAULT_FUNCTIONS_TO_SKIP: string[] = [];
@@ -22,6 +23,10 @@ export class PgClient {
   private _logger: typeof log | null;
   private _skipSchemas: string[];
   private _skipFunctions: string[];
+  private _skipExtensions: string[];
+  private _scope: ResolvedScope;
+  private _scopeSchemasCount: number;
+  private _scopeTablesCount: number;
 
   constructor(
     config: string | pg.ClientConfig,
@@ -29,6 +34,8 @@ export class PgClient {
       logger?: typeof log | null;
       skipSchemas?: string[];
       skipFunctions?: string[];
+      skipExtensions?: string[];
+      scope?: ScopeOptions;
     } = {}
   ) {
     if (typeof config === 'string') {
@@ -42,6 +49,10 @@ export class PgClient {
     this._logger = options.logger !== undefined ? options.logger : log;
     this._skipSchemas = DEFAULT_SCHEMAS_TO_SKIP.concat(options.skipSchemas || []);
     this._skipFunctions = DEFAULT_FUNCTIONS_TO_SKIP.concat(options.skipFunctions || []);
+    this._skipExtensions = options.skipExtensions || [];
+    this._scope = resolveScope(options.scope);
+    this._scopeSchemasCount = (options.scope?.includeSchemas || []).length;
+    this._scopeTablesCount = (options.scope?.includeTables || []).length;
   }
 
   async connect() {
@@ -136,21 +147,32 @@ export class PgClient {
 
     const skipSchemas = this._skipSchemas;
     const skipFunctions = this._skipFunctions;
+    const skipExtensions = this._skipExtensions;
+    const scope = this._scope;
+
+    if (scope.active) {
+      this._logger?.info(`scope active: ${this._scopeSchemasCount} schemas, ${this._scopeTablesCount} tables`);
+    }
 
     await this.connect();
     if (!this._client) {
       throw new Error(`this.connect() should ensure client exists`);
     }
     const [, , functions, indexes, sequences, tables, triggers, views] = await Promise.all([
-      collectExtensions(this._client).then(all(fsSchema.writeExtension)),
-      collectTypes(this._client).then(all(fsSchema.writeType)),
-      collectFunctions(this._client, { skipSchemas, skipFunctions }).then(all(fsSchema.writeFunction)),
-      collectIndexes(this._client, { skipSchemas }).then(all(fsSchema.writeIndex)),
-      collectSequences(this._client).then(all(fsSchema.writeSequence)),
-      collectTables(this._client, { skipSchemas }).then(all(fsSchema.writeTable)),
-      collectTriggers(this._client, { skipSchemas }).then(all(fsSchema.writeTrigger)),
-      collectViews(this._client, { skipSchemas }).then(all(fsSchema.writeView)),
+      collectExtensions(this._client, { skipExtensions }).then(all(fsSchema.writeExtension)),
+      collectTypes(this._client, { scope }).then(all(fsSchema.writeType)),
+      collectFunctions(this._client, { skipSchemas, skipFunctions, scope }).then(all(fsSchema.writeFunction)),
+      collectIndexes(this._client, { skipSchemas, scope }).then(all(fsSchema.writeIndex)),
+      collectSequences(this._client, { skipSchemas, scope }).then(all(fsSchema.writeSequence)),
+      collectTables(this._client, { skipSchemas, scope }).then(all(fsSchema.writeTable)),
+      collectTriggers(this._client, { skipSchemas, scope }).then(all(fsSchema.writeTrigger)),
+      collectViews(this._client, { skipSchemas, scope }).then(all(fsSchema.writeView)),
     ] as const);
+
+    if (scope.active) {
+      await this._logScopeIntegrityReport(scope);
+    }
+
     await this.end();
 
     const getSchema = <T extends { schema: string }>(arg: T) => arg.schema;
@@ -164,6 +186,51 @@ export class PgClient {
     ]).map((schema) => fsSchema.writeSchema({ schema }));
 
     this._logger?.info(`finished dump of: ${await this.getCurrentDatabase()}`);
+  }
+
+  private async _logScopeIntegrityReport(scope: ResolvedScope) {
+    if (!this._client) {
+      return;
+    }
+
+    const droppedFks = await this._client.query<{ column: string; target: string }>(`
+      SELECT
+        (sn.nspname || '.' || sc.relname || '.' || sa.attname) AS "column",
+        (tn.nspname || '.' || tc.relname) AS "target"
+      FROM pg_constraint r
+      JOIN pg_class sc ON sc.oid = r.conrelid
+      JOIN pg_namespace sn ON sn.oid = sc.relnamespace
+      JOIN pg_attribute sa ON sa.attrelid = r.conrelid AND sa.attnum = r.conkey[1]
+      JOIN pg_class tc ON tc.oid = r.confrelid
+      JOIN pg_namespace tn ON tn.oid = tc.relnamespace
+      WHERE r.contype = 'f'
+        AND array_length(r.confkey, 1) = 1
+        AND ${scope.tablePredicate('sn.nspname', 'sc.relname')}
+        AND NOT (${scope.tablePredicate('tn.nspname', 'tc.relname')})
+    `);
+    for (const row of droppedFks.rows) {
+      this._logger?.warn(`scope: dropped FK ${row.column} -> ${row.target} (target out of scope)`);
+    }
+
+    const excludedViews = await this._client.query<{ view: string; cause: string }>(`
+      SELECT DISTINCT
+        (n.nspname || '.' || c.relname) AS "view",
+        (dn.nspname || '.' || dc.relname) AS "cause"
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_rewrite rw ON rw.ev_class = c.oid
+      JOIN pg_depend dep ON dep.objid = rw.oid AND dep.classid = 'pg_rewrite'::regclass
+      JOIN pg_class dc ON dc.oid = dep.refobjid
+      JOIN pg_namespace dn ON dn.oid = dc.relnamespace
+      WHERE c.relkind = 'v'
+        AND dep.refclassid = 'pg_class'::regclass
+        AND dep.refobjid <> c.oid
+        AND dc.relkind IN ('r','v','m','p')
+        AND NOT (${scope.tablePredicate('dn.nspname', 'dc.relname')})
+    `);
+    for (const row of excludedViews.rows) {
+      this._logger?.warn(`scope: excluded view ${row.view} (depends on out-of-scope relation ${row.cause})`);
+    }
   }
 
   async restoreSchema({ src }: { src: string }) {

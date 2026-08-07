@@ -1,7 +1,11 @@
 import { Client } from 'pg';
 import { pgStringArray, pgQuoteString } from '../pg-helpers';
+import { ResolvedScope } from '../scope';
 
-export async function collectTypes(client: Client) {
+// Enum types have no schema/table association in the current query, so `scope`
+// is accepted for interface consistency with the other collectors but is a
+// no-op here (see docs/TODO.md).
+export async function collectTypes(client: Client, _options: { scope?: ResolvedScope } = {}) {
   const result = await client.query<{
     type_name: string;
     enum_values: string;

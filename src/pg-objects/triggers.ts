@@ -1,12 +1,15 @@
 import { Client } from 'pg';
 import { pgQuoteStrings } from '../pg-helpers';
+import { resolveScope, ResolvedScope } from '../scope';
 
 export async function collectTriggers(
   client: Client,
   options: {
     skipSchemas: string[];
+    scope?: ResolvedScope;
   }
 ) {
+  const scope = options.scope || resolveScope();
   const result = await client.query<{
     schema: string;
     table: string;
@@ -15,7 +18,7 @@ export async function collectTriggers(
   }>(`
     SELECT
       n.nspname "schema",
-      t.tgrelid::regclass::text "table",
+      c.relname "table",
       t.tgname "name",
       pg_get_triggerdef(t.oid) "src"
     FROM
@@ -27,6 +30,7 @@ export async function collectTriggers(
     WHERE NOT t.tgisinternal
       AND t.tgenabled = 'O'
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
+      AND ${scope.tablePredicate('n.nspname', 'c.relname')}
   `);
   return result.rows;
 }
