@@ -49,7 +49,7 @@ spec: <https://www.conventionalcommits.org/en/v1.0.0/>.
 - `[scope]` — optional, in parentheses; use the module it touches (`fs-schema`, `pg-client`, `pg-objects`, `deps`, …).
 - `!` — marks a breaking change (equivalent to a `BREAKING CHANGE:` footer).
 - `<description>` — imperative, lowercase, no trailing period.
-- Footers that matter here: `BREAKING CHANGE: <what broke>`, `Release-As: X.Y.Z`, and free-form ones like `Refs: PUR-1234`.
+- Footers that matter here: `BREAKING CHANGE: <what broke>` and `Release-As: X.Y.Z`. Do **not** add an issue-tracker footer — see [No tracker references](../AGENTS.md#no-tracker-references).
 
 This is a hard requirement, not a style preference. release-please parses the
 commit subjects on `main` to decide the next version; a subject it cannot parse
@@ -102,28 +102,43 @@ chore(deps): force patched transitive versions via overrides
 Rejected — parsed as nothing, released as nothing:
 
 ```
-updated stuff              # no type prefix
-Fix bug                    # not a type; `fix:` (lowercase, with colon) is required
-PUR-4706: fix fk ordering  # ticket prefix is not a Conventional Commit type
+updated stuff             # no type prefix
+Fix bug                   # not a type; `fix:` (lowercase, with colon) is required
+ABC-123: fix fk ordering  # a ticket prefix is not a Conventional Commit type
 ```
 
-That last one matters: the wider Pureprofile convention of prefixing commits with
-a Linear ticket (`PUR-4706: …`) does **not** work in this repo. Put the
-conventional type first and the ticket in the body or a footer:
+That last one matters twice over. The wider Pureprofile convention of prefixing a
+commit with an issue-tracker id does **not** work in this repo — and because this
+repository is **public**, the id must not be relocated into the body or a footer
+either. Drop it entirely and describe the change on its own terms:
 
 ```
-fix(pg-helpers): promote referenced functions ahead of tables on restore
-
-Refs: PUR-4706
+fix(pg-client): report every unapplied file when a restore stalls
 ```
+
+See [No tracker references](../AGENTS.md#no-tracker-references) for the full rule.
 
 ### The PR title is the commit subject, and it is checked
 
 **Squash is the only merge method enabled on this repo**, and the squash subject is
 configured as `PR_TITLE`. So the PR title becomes the commit subject on `main`
 verbatim — including for single-commit PRs, where GitHub would otherwise pre-fill
-the commit's own message. Individual commits inside a PR are never what
-release-please reads; only the squashed subject is.
+the commit's own message. **The PR title is therefore what decides the version
+bump**, and it is the only thing that can.
+
+The commits inside the PR are not discarded, though. `squash_merge_commit_message`
+is `COMMIT_MESSAGES`, so their messages are concatenated into the squash commit's
+**body** and land on `main` verbatim. Two consequences:
+
+- **release-please parses footers out of that body**, not just the subject. A
+  `BREAKING CHANGE:` footer in any one of the branch's commits reaches `main` and
+  forces a major; so does a stray `Release-As:` footer, which will pin the next
+  release to whatever version it names. Do not leave either in a work-in-progress
+  commit and assume squashing swallows it.
+- **Those messages are the permanent record** of the change on `main`, so keep them
+  conventional and clean even though they cannot trigger a release by themselves.
+  (Watch line endings on Windows: a rewrite that leaves stray carriage returns in a
+  message carries them into `main`.)
 
 That title is enforced by the **PR Title** check
 ([`.github/workflows/pr-title.yml`](../.github/workflows/pr-title.yml)), which
@@ -285,8 +300,7 @@ version. Do not delete or move the tag, and do not expect a re-run to fix it (se
 ## 8. How to force a release
 
 - **Release work made only of non-releasing types** (a docs- or chore-only batch
-  you nevertheless want published): add a `Release-As:` footer to a commit on
-  `main`.
+  you nevertheless want published): land a `Release-As:` footer on `main`.
 
   ```
   chore: refresh dependency overrides
@@ -294,9 +308,14 @@ version. Do not delete or move the tag, and do not expect a re-run to fix it (se
   Release-As: 1.1.1
   ```
 
-  This also works for jumping to a specific version deliberately (e.g. a
-  pre-planned `2.0.0`). Verified behaviour: the footer forces a release PR even
-  when every commit in range is a quiet type.
+  A PR title cannot carry a footer, so put it in a **commit message on the branch**
+  — `COMMIT_MESSAGES` puts that message in the squash body, which is where
+  release-please finds it (see
+  [The PR title is the commit subject](#the-pr-title-is-the-commit-subject-and-it-is-checked)).
+
+  This also works for jumping to a specific version deliberately. Verified
+  behaviour: the footer forces a release PR even when every commit in range is a
+  quiet type.
 
 - **Re-run the workflow when the release PR itself failed to appear** — Actions →
   _Release Please_ → _Run workflow_ (`workflow_dispatch`, on `main`; other refs are

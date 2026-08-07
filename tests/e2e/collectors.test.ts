@@ -64,17 +64,38 @@ test('collectExtensions returns an array (may include pgcrypto)', async () => {
   expect(names).toContain('pgcrypto');
 });
 
-test('collectTypes returns mood enum', async () => {
+test('collectTypes returns mood enum, schema-qualified with ordered values', async () => {
   const rows = await collectTypes(raw);
   const mood = rows.find((r) => r.name === 'mood');
   expect(mood).toBeDefined();
+  expect(mood!.schema).toBe('public');
   expect(mood!.src.toUpperCase()).toContain('ENUM');
+  // identifiers are only quoted when they need it, as Postgres itself does
+  expect(mood!.src).toContain('CREATE TYPE public.mood');
+  expect(mood!.src.indexOf('happy')).toBeLessThan(mood!.src.indexOf('sad'));
 });
 
-test('collectSequences returns my_seq with CREATE SEQUENCE src', async () => {
+test('collectSequences returns my_seq with CREATE SEQUENCE src including START/CYCLE, no ownedBy', async () => {
   const rows = await collectSequences(raw);
   const seq = rows.find((r) => r.name === 'my_seq');
   expect(seq).toBeDefined();
+  expect(seq!.src.toUpperCase()).toContain('CREATE SEQUENCE');
+  expect(seq!.src.toUpperCase()).toContain('START');
+  expect(seq!.src.toUpperCase()).toContain('NO CYCLE');
+  expect(seq!.ownedBy).toBeNull();
+});
+
+test('collectSequences reports ownership separately from the CREATE statement', async () => {
+  const rows = await collectSequences(raw);
+  const seq = rows.find((r) => r.name === 'parent_id_seq');
+  expect(seq).toBeDefined();
+  // Three fields, not a dotted string: any identifier may legally contain a dot, so
+  // flattening and re-splitting would attach the sequence to the wrong table.
+  expect(seq!.ownedBy).toEqual({ schema: 'public', table: 'parent', column: 'id' });
+  // The ALTER SEQUENCE ... OWNED BY belongs in the owning table's file, not here:
+  // it cannot run before that table exists, and a multi-statement file runs in a
+  // single implicit transaction, so a failing ALTER would roll back the CREATE too.
+  expect(seq!.src).not.toContain('OWNED BY');
   expect(seq!.src.toUpperCase()).toContain('CREATE SEQUENCE');
 });
 
@@ -109,14 +130,21 @@ test('collectIndexes with non-empty skipSchemas still contains idx_child_parent'
   expect(names).toContain('idx_child_parent');
 });
 
+test('collectIndexes excludes constraint-backed indexes (e.g. parent_pkey)', async () => {
+  const rows = await collectIndexes(raw, { skipSchemas: [] });
+  const names = rows.map((r) => r.name);
+  expect(names).not.toContain('parent_pkey');
+  expect(names).not.toContain('child_pkey');
+});
+
 test('collectViews with skipSchemas:[] contains parent_names', async () => {
-  const rows = await collectViews(raw, { skipSchemas: [] });
+  const { views: rows } = await collectViews(raw, { skipSchemas: [] });
   const names = rows.map((r) => r.name);
   expect(names).toContain('parent_names');
 });
 
 test('collectViews with non-empty skipSchemas still contains parent_names', async () => {
-  const rows = await collectViews(raw, { skipSchemas: ['pg_catalog', 'information_schema'] });
+  const { views: rows } = await collectViews(raw, { skipSchemas: ['pg_catalog', 'information_schema'] });
   const names = rows.map((r) => r.name);
   expect(names).toContain('parent_names');
 });

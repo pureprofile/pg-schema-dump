@@ -1,5 +1,6 @@
 import { Client } from 'pg';
-import { pgQuoteStrings } from '../pg-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
+import { resolveScope, ResolvedScope } from '../scope';
 
 export interface Attribute {
   table: string;
@@ -13,6 +14,17 @@ export interface Attribute {
 }
 
 export interface Reference {
+  /**
+   * Display only - never emit this as an identifier.
+   *
+   * It comes from `confrelid::regclass`, whose text form depends on the session
+   * `search_path` (schema-qualified only when the schema is not on it) and which
+   * quotes itself only when it has to, so its single dot is not a separator anything
+   * may rely on. The executable foreign key DDL comes from `pg_get_constraintdef` in
+   * `constraints.ts`; this feeds only the `references ...` breadcrumb comment in
+   * `attributeSql`. Copy the `OwnedBy` shape in `sequences.ts` if a qualified name
+   * ever needs to become SQL again.
+   */
   table: string;
   attribute: Attribute;
 }
@@ -21,8 +33,10 @@ export async function collectTables(
   client: Client,
   options: {
     skipSchemas: string[];
+    scope?: ResolvedScope;
   }
 ) {
+  const scope = options.scope || resolveScope();
   const result = await client.query<{
     schema: string;
     table: string;
@@ -93,7 +107,11 @@ export async function collectTables(
                   r.conrelid = c.oid and
                   r.conkey = array[a.attnum] and
                   array_length(r.confkey, 1) = 1 and -- We want just single column refs
-                  r.contype = 'f'
+                  r.contype = 'f' and
+                  exists (
+                    select 1 from pg_class rc join pg_namespace rn on rn.oid = rc.relnamespace
+                    where rc.oid = r.confrelid and ${scope.tablePredicate('rn.nspname', 'rc.relname')}
+                  )
                 limit 1
               )
             ) "attribute"
@@ -110,7 +128,9 @@ export async function collectTables(
     left join pg_catalog.pg_namespace n on
       n.oid = c.relnamespace
     WHERE c.relkind = 'r'
+      AND ${notExtensionOwned('pg_class', 'c.oid')}
       ${options.skipSchemas.length ? `AND n.nspname NOT IN (${pgQuoteStrings(options.skipSchemas)})` : ``}
+      AND ${scope.tablePredicate('n.nspname', 'c.relname')}
     ORDER BY 2, 3
   `);
   return result.rows;

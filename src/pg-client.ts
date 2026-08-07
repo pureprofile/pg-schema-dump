@@ -1,20 +1,33 @@
 import * as pg from 'pg';
-import { all, findAndShiftFunctionReferences, pgQuoteStrings } from './pg-helpers';
+import { pgQuoteStrings } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
 import { FsSchema } from './fs-schema';
+import { unquoted } from './fs-schema-helpers';
+import { CollectedConstraints, collectConstraints } from './pg-objects/constraints';
 import { uniq } from 'lodash';
 import { collectIndexes } from './pg-objects/indexes';
 import { collectExtensions } from './pg-objects/extensions';
 import { collectTypes } from './pg-objects/types';
 import { collectTables } from './pg-objects/tables';
-import { collectViews } from './pg-objects/views';
+import { CollectedViews, collectViews } from './pg-objects/views';
 import { collectFunctions } from './pg-objects/functions';
 import { collectTriggers } from './pg-objects/triggers';
-import { collectSequences } from './pg-objects/sequences';
+import { collectSequences, OwnedBy } from './pg-objects/sequences';
+import { resolveScope, ResolvedScope, ScopeOptions } from './scope';
+import { validateScope } from './scope-file';
 
 const DEFAULT_SCHEMAS_TO_SKIP: string[] = ['pg_catalog', 'information_schema'];
 const DEFAULT_FUNCTIONS_TO_SKIP: string[] = [];
+
+/** What a scope excluded from a dump. Both lists are empty for an unscoped dump. */
+export interface DumpOmissions {
+  /** Foreign keys omitted because the table they reference is out of scope. */
+  droppedForeignKeys: CollectedConstraints['droppedForeignKeys'];
+
+  /** Views omitted because something they read is out of scope. */
+  excludedViews: CollectedViews['excluded'];
+}
 
 export class PgClient {
   private _clientConfig: pg.ClientConfig;
@@ -22,6 +35,9 @@ export class PgClient {
   private _logger: typeof log | null;
   private _skipSchemas: string[];
   private _skipFunctions: string[];
+  private _skipExtensions: string[];
+  private _scope: ResolvedScope;
+  private _scopeSummary: string;
 
   constructor(
     config: string | pg.ClientConfig,
@@ -29,6 +45,8 @@ export class PgClient {
       logger?: typeof log | null;
       skipSchemas?: string[];
       skipFunctions?: string[];
+      skipExtensions?: string[];
+      scope?: ScopeOptions;
     } = {}
   ) {
     if (typeof config === 'string') {
@@ -42,6 +60,14 @@ export class PgClient {
     this._logger = options.logger !== undefined ? options.logger : log;
     this._skipSchemas = DEFAULT_SCHEMAS_TO_SKIP.concat(options.skipSchemas || []);
     this._skipFunctions = DEFAULT_FUNCTIONS_TO_SKIP.concat(options.skipFunctions || []);
+    this._skipExtensions = options.skipExtensions || [];
+    // Validated here too, not only at the CLI and manifest boundaries: a library caller
+    // passing `{ includeTables: ['orders'] }` would otherwise activate scoping, match
+    // nothing, and get a near-empty dump reported as a success.
+    this._scope = resolveScope(options.scope ? validateScope(options.scope, 'scope option') : undefined);
+    this._scopeSummary =
+      `${(options.scope?.includeSchemas || []).length} schemas, ` +
+      `${(options.scope?.includeTables || []).length} tables`;
   }
 
   async connect() {
@@ -129,78 +155,229 @@ export class PgClient {
     await this.switchDatabase(db);
   }
 
-  async dumpSchema({ out }: { out: string }) {
+  /**
+   * Dumps the schema into `out` and returns what the scope left behind.
+   *
+   * The omissions are returned, not only logged: `logger: null` is a supported
+   * option, and a scoped dump that silently drops a foreign key or a view is the
+   * failure mode that costs the most to discover later. A caller doing its own
+   * reporting needs a programmatic record.
+   */
+  async dumpSchema({ out }: { out: string }): Promise<DumpOmissions> {
     const fsSchema = new FsSchema(out, this._logger);
     this._logger?.info(`dumping contents into: ${out}`);
     fsSchema.clean();
 
     const skipSchemas = this._skipSchemas;
     const skipFunctions = this._skipFunctions;
+    const skipExtensions = this._skipExtensions;
+    const scope = this._scope;
+
+    if (scope.active) {
+      this._logger?.info(`scope active: ${this._scopeSummary}`);
+    }
 
     await this.connect();
     if (!this._client) {
       throw new Error(`this.connect() should ensure client exists`);
     }
-    const [, , functions, indexes, sequences, tables, triggers, views] = await Promise.all([
-      collectExtensions(this._client).then(all(fsSchema.writeExtension)),
-      collectTypes(this._client).then(all(fsSchema.writeType)),
-      collectFunctions(this._client, { skipSchemas, skipFunctions }).then(all(fsSchema.writeFunction)),
-      collectIndexes(this._client, { skipSchemas }).then(all(fsSchema.writeIndex)),
-      collectSequences(this._client).then(all(fsSchema.writeSequence)),
-      collectTables(this._client, { skipSchemas }).then(all(fsSchema.writeTable)),
-      collectTriggers(this._client, { skipSchemas }).then(all(fsSchema.writeTrigger)),
-      collectViews(this._client, { skipSchemas }).then(all(fsSchema.writeView)),
-    ] as const);
+    // Collect everything first: per-table objects are merged into one file per
+    // table, so nothing can be written until all of it is in hand.
+    const [extensions, types, functions, indexes, sequences, tables, triggers, collectedViews, collectedConstraints] =
+      await Promise.all([
+        collectExtensions(this._client, { skipExtensions }),
+        collectTypes(this._client, { skipSchemas, scope }),
+        collectFunctions(this._client, { skipSchemas, skipFunctions, scope }),
+        collectIndexes(this._client, { skipSchemas, scope }),
+        collectSequences(this._client, { skipSchemas, scope }),
+        collectTables(this._client, { skipSchemas, scope }),
+        collectTriggers(this._client, { skipSchemas, scope }),
+        collectViews(this._client, { skipSchemas, scope }),
+        collectConstraints(this._client, { skipSchemas, scope }),
+      ] as const);
+
+    const views = collectedViews.views;
+    const constraints = collectedConstraints.constraints;
+
+    // What a scope left out, reported by the collectors that made the decision
+    // rather than re-derived by a second set of queries that would have to be kept
+    // in step with them by hand.
+    if (scope.active) {
+      for (const fk of collectedConstraints.droppedForeignKeys) {
+        this._logger?.warn(
+          `scope: dropped FK ${fk.schema}.${fk.table}.${fk.name} -> ${fk.target} (target out of scope)`
+        );
+      }
+      for (const view of collectedViews.excluded) {
+        this._logger?.warn(`scope: excluded view ${view.view} (depends on out-of-scope ${view.cause})`);
+      }
+    }
+
     await this.end();
+
+    const tableKey = (schema: string, table: string) => `${schema}.${table}`;
+    const byTable = <T extends { schema: string; table: string }>(items: T[]) => {
+      const map: { [key: string]: T[] } = {};
+      for (const item of items) {
+        const key = tableKey(item.schema, unquoted(item.table));
+        (map[key] = map[key] || []).push(item);
+      }
+      return map;
+    };
+
+    const indexesByTable = byTable(indexes);
+    const triggersByTable = byTable(triggers);
+    const constraintsByTable = byTable(constraints);
+
+    // A sequence owned by a column belongs to that column's table: its
+    // ALTER SEQUENCE ... OWNED BY has to run after the table exists, so it is
+    // emitted inside the table's file rather than the sequence's own.
+    const ownedSequencesByTable: { [key: string]: Array<{ schema: string; name: string; ownedBy: OwnedBy }> } = {};
+    for (const sequence of sequences) {
+      const ownedBy = sequence.ownedBy;
+      if (!ownedBy) {
+        continue;
+      }
+      const key = tableKey(ownedBy.schema, ownedBy.table);
+      (ownedSequencesByTable[key] = ownedSequencesByTable[key] || []).push({
+        schema: sequence.schema,
+        name: sequence.name,
+        ownedBy,
+      });
+    }
+
+    extensions.map(fsSchema.writeExtension);
+    types.map(fsSchema.writeType);
+    functions.map(fsSchema.writeFunction);
+    sequences.map(fsSchema.writeSequence);
+    views.map(fsSchema.writeView);
+
+    for (const table of tables) {
+      const key = tableKey(table.schema, table.table);
+      fsSchema.writeTable({
+        ...table,
+        constraints: (constraintsByTable[key] || []).filter((c) => c.type !== 'f'),
+        indexes: indexesByTable[key] || [],
+        triggers: triggersByTable[key] || [],
+        ownedSequences: ownedSequencesByTable[key] || [],
+      });
+      fsSchema.writeForeignKeys({
+        schema: table.schema,
+        table: table.table,
+        constraints: (constraintsByTable[key] || []).filter((c) => c.type === 'f'),
+      });
+    }
 
     const getSchema = <T extends { schema: string }>(arg: T) => arg.schema;
     uniq([
+      ...types.map(getSchema),
       ...functions.map(getSchema),
-      ...indexes.map(getSchema),
       ...sequences.map(getSchema),
       ...tables.map(getSchema),
-      ...triggers.map(getSchema),
       ...views.map(getSchema),
+      ...constraints.map(getSchema),
     ]).map((schema) => fsSchema.writeSchema({ schema }));
 
     this._logger?.info(`finished dump of: ${await this.getCurrentDatabase()}`);
+
+    return {
+      droppedForeignKeys: collectedConstraints.droppedForeignKeys,
+      excludedViews: collectedViews.excluded,
+    };
   }
 
   async restoreSchema({ src }: { src: string }) {
     await this.connect();
+    // A sentinel rather than a truthiness test below: `throw undefined` (or 0, or '')
+    // would otherwise be swallowed and reported to the caller as a successful restore,
+    // which is precisely the failure this structure exists to prevent.
+    let failed = false;
+    let restoreError: unknown;
+    try {
+      await this._restoreSchema({ src });
+    } catch (err) {
+      failed = true;
+      restoreError = err;
+    }
+
+    // Always hand the connection back with validation restored, even on a failed
+    // restore - otherwise the caller is left holding an open session with
+    // check_function_bodies still off.
+    //
+    // Cleanup runs outside a `finally` on purpose: a throwing `finally` *replaces*
+    // the exception in flight, so a socket that died with the restore would bury the
+    // per-file diagnostics under a generic close failure. Cleanup failures are
+    // logged, and the restore error always wins.
+    try {
+      await this._client?.query(`SET check_function_bodies = on`);
+    } catch (err) {
+      // Usually means the session is already unusable, but that is an assumption -
+      // a pooler refusing a session-level SET looks the same, and silently swallowing
+      // it would leave validation off with no trace of why.
+      this._logger?.warn(`failed to restore check_function_bodies: ${(err as Error).message}`);
+    }
+    try {
+      await this.end();
+    } catch (err) {
+      this._logger?.warn(`failed to close the connection after restore: ${(err as Error).message}`);
+    }
+
+    if (failed) {
+      throw restoreError;
+    }
+  }
+
+  private async _restoreSchema({ src }: { src: string }) {
     const fsSchema = new FsSchema(src, this._logger);
     this._logger?.info(`reading contents from: ${src}`);
+
+    // Functions are restored before the tables they may reference, so their
+    // bodies must not be validated on creation.
+    await this._client!.query(`SET check_function_bodies = off`);
+
     const fNames = await fsSchema.readDir();
-    const fHasErrored: string[] = [];
+    const lastError: { [fName: string]: Error } = {};
+    // Files are ordered so one pass suffices, but chained views (a view selecting
+    // from another view) can still need a retry. Requeue a failing file and give
+    // up only once a full cycle completes with nothing succeeding.
+    let sinceLastProgress = 0;
+
     while (fNames.length > 0) {
       const fName = fNames[0];
       const fContents = await fsSchema.read(fName);
 
-      // handle references
-      if (findAndShiftFunctionReferences(fName, fContents, fNames)) {
-        continue;
-      }
-
       try {
         await this._client!.query(fContents);
-        // remove the file if it was processed without error
         fNames.shift();
-        // empty the fHasErrored array
-        fHasErrored.splice(0, fHasErrored.length);
+        delete lastError[fName];
+        sinceLastProgress = 0;
       } catch (err) {
-        // if the file has not errored yet, move it to the end of the file stack
-        if (!fHasErrored.includes(fName)) {
-          fHasErrored.push(fName);
-          fNames.shift();
-          fNames.push(fName);
-          continue;
+        lastError[fName] = err as Error;
+        fNames.shift();
+        fNames.push(fName);
+        sinceLastProgress += 1;
+        // One full lap of the queue with nothing applied means no remaining file can
+        // ever succeed - the database state is unchanged, so another lap would repeat
+        // the same failures. Compared after the requeue, so the length is the lap.
+        if (sinceLastProgress >= fNames.length) {
+          break;
         }
-        this._logger?.error(`error processing file ${fName}: ${(err as Error).stack || err}`);
-        throw err;
       }
     }
+
+    if (fNames.length > 0) {
+      // Every name still queued got there by failing, so lastError is always
+      // populated here. The fallback only guards a future refactor of the loop above
+      // breaking that invariant - it should not be reachable today.
+      const report = uniq(fNames)
+        .map((fName) => `  - ${fName}: ${lastError[fName] ? lastError[fName].message : 'unknown error'}`)
+        .join('\n');
+      const error = new Error(`restoreSchema: ${uniq(fNames).length} file(s) could not be applied:\n${report}`);
+      this._logger?.error(error.message);
+      throw error;
+    }
+
     this._logger?.info(`all contents restored!`);
-    await this.end();
   }
 
   async truncateTables(db: string) {
