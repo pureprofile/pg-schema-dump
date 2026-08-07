@@ -11,7 +11,7 @@ and the [README](../README.md) only summarise it.
 ## 1. TL;DR
 
 - Write every commit message as a [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/) — `fix(fs-schema): …`, `feat: …`, `chore: …`.
-- Merge your PR to `main` — squash-merge, and check that the subject GitHub pre-fills is conventional.
+- Merge your PR to `main` — squash is the only option, and the PR title becomes the commit subject (a check enforces that it is conventional).
 - release-please opens — or updates — a single PR titled `chore(main): release X.Y.Z`.
 - Merging **that** PR bumps the version, writes `CHANGELOG.md`, tags `vX.Y.Z`, creates the GitHub Release, and publishes to npm.
 - Never hand-edit `package.json`'s `version`, `CHANGELOG.md`, or `.release-please-manifest.json`.
@@ -117,25 +117,24 @@ fix(pg-helpers): promote referenced functions ahead of tables on restore
 Refs: PUR-4706
 ```
 
-### Squash-merge, and check the subject GitHub is about to use
+### The PR title is the commit subject, and it is checked
 
-Squash-merging is the convention here, which normally means **the PR title becomes
-the commit subject on `main`** — so the PR title must be a valid Conventional
-Commit. Individual commits inside a PR are not what release-please reads.
+**Squash is the only merge method enabled on this repo**, and the squash subject is
+configured as `PR_TITLE`. So the PR title becomes the commit subject on `main`
+verbatim — including for single-commit PRs, where GitHub would otherwise pre-fill
+the commit's own message. Individual commits inside a PR are never what
+release-please reads; only the squashed subject is.
 
-Two caveats, because none of this is enforced by tooling:
+That title is enforced by the **PR Title** check
+([`.github/workflows/pr-title.yml`](../.github/workflows/pr-title.yml)), which
+rejects a PR whose title is not a Conventional Commit with one of the types in the
+table above. It re-runs when you edit the title, so a red check goes green as soon
+as you fix it — no new commit needed.
 
-- The repo allows merge commits and rebase merges as well as squash, and `main`
-  has no branch protection — nothing stops a non-conventional subject from
-  landing. The requirement is upheld by the people merging, not by a check.
-- GitHub's squash default here is "commit message or PR title": for a
-  **single-commit** PR it pre-fills the _commit_ message, not the PR title. Read
-  the subject in the merge dialog before confirming, and correct it there if it
-  is not conventional.
-
-If this proves fragile in practice, the fix is a PR-title lint job (e.g.
-`amannn/action-semantic-pull-request`) plus restricting the merge button to
-squash-only — neither is in place today.
+One gap remains, deliberately: `main` has **no branch protection**, so the check is
+advisory rather than blocking, and someone with push access can still commit
+straight to `main` and bypass PRs entirely. Making the check a hard gate means
+enabling branch protection with `PR Title` as a required status check.
 
 ## 4. The pipeline, step by step
 
@@ -192,6 +191,14 @@ and only lockfile) but the publish itself uses `npm publish`, because trusted
 publishing is implemented by the npm CLI. `actions/setup-node` must stay at **v7
 or newer**: v6 exports a dummy `NODE_AUTH_TOKEN` whenever `registry-url` is set,
 which breaks the OIDC exchange.
+
+**[`.github/workflows/pr-title.yml`](../.github/workflows/pr-title.yml)** — the
+guard on the pipeline's only input. Because squash is the sole merge method and the
+squash subject is the PR title, an unconventional PR title would land on `main` as
+an unparseable commit subject and quietly go unreleased. This check validates the
+title against the same type list as the table above, and re-runs on title edits.
+The type list is duplicated here on purpose — a workflow input is the enforcement
+point — so if you change one, change both.
 
 **[`release-please-config.json`](../release-please-config.json)** — declares one
 package at the repo root with `release-type: node`, which is what teaches
@@ -338,6 +345,7 @@ version. Do not delete or move the tag, and do not expect a re-run to fix it (se
 | `npm publish` fails saying trusted publishing is not supported | npm CLI on the runner is older than 11.5.1                                                                                        | Add `- run: npm install -g npm@latest` immediately before the `npm publish` step in the `publish` job                                               |
 | Publish failed, but the tag and Release exist                  | Expected ordering — the tag precedes the publish                                                                                  | Do not re-tag and do not re-run (a re-run skips `publish` entirely). Fix forward with a new commit and let the next version go out                  |
 | The workflow ran but every job was skipped                     | It was dispatched on a branch other than `main`                                                                                   | Re-dispatch it against `main`; releases are deliberately restricted to that ref                                                                     |
+| The **PR Title** check is red                                  | The PR title is not a Conventional Commit, or its type is outside the list in `pr-title.yml`                                      | Edit the PR title; the check re-runs on edit, so no new commit is needed                                                                            |
 | No release PR **and** the log shows a permissions error        | Repo/org setting "Allow GitHub Actions to create and approve pull requests" is off                                                | Enable it in Settings → Actions → General → Workflow permissions                                                                                    |
 | Publish succeeded but npm shows no provenance                  | Published from something other than this OIDC workflow (e.g. a laptop)                                                            | Always release through the workflow; `npm publish` from a laptop is no longer part of the process                                                   |
 
