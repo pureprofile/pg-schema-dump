@@ -49,7 +49,7 @@ spec: <https://www.conventionalcommits.org/en/v1.0.0/>.
 - `[scope]` — optional, in parentheses; use the module it touches (`fs-schema`, `pg-client`, `pg-objects`, `deps`, …).
 - `!` — marks a breaking change (equivalent to a `BREAKING CHANGE:` footer).
 - `<description>` — imperative, lowercase, no trailing period.
-- Footers that matter here: `BREAKING CHANGE: <what broke>`, `Release-As: X.Y.Z`, and free-form ones like `Refs: PUR-1234`.
+- Footers that matter here: `BREAKING CHANGE: <what broke>` and `Release-As: X.Y.Z`. Do **not** add an issue-tracker footer — see [No tracker references](../AGENTS.md#no-tracker-references).
 
 This is a hard requirement, not a style preference. release-please parses the
 commit subjects on `main` to decide the next version; a subject it cannot parse
@@ -102,20 +102,21 @@ chore(deps): force patched transitive versions via overrides
 Rejected — parsed as nothing, released as nothing:
 
 ```
-updated stuff              # no type prefix
-Fix bug                    # not a type; `fix:` (lowercase, with colon) is required
-PUR-4706: fix fk ordering  # ticket prefix is not a Conventional Commit type
+updated stuff             # no type prefix
+Fix bug                   # not a type; `fix:` (lowercase, with colon) is required
+ABC-123: fix fk ordering  # a ticket prefix is not a Conventional Commit type
 ```
 
-That last one matters: the wider Pureprofile convention of prefixing commits with
-a Linear ticket (`PUR-4706: …`) does **not** work in this repo. Put the
-conventional type first and the ticket in the body or a footer:
+That last one matters twice over. The wider Pureprofile convention of prefixing a
+commit with an issue-tracker id does **not** work in this repo — and because this
+repository is **public**, the id must not be relocated into the body or a footer
+either. Drop it entirely and describe the change on its own terms:
 
 ```
-fix(pg-helpers): promote referenced functions ahead of tables on restore
-
-Refs: PUR-4706
+fix(pg-client): report every unapplied file when a restore stalls
 ```
+
+See [No tracker references](../AGENTS.md#no-tracker-references) for the full rule.
 
 ### The PR title is the commit subject, and it is checked
 
