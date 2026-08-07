@@ -11,7 +11,7 @@ and the [README](../README.md) only summarise it.
 ## 1. TL;DR
 
 - Write every commit message as a [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/) — `fix(fs-schema): …`, `feat: …`, `chore: …`.
-- Merge your PR to `main` (squash-merge, so the **PR title** becomes the commit subject).
+- Merge your PR to `main` — squash-merge, and check that the subject GitHub pre-fills is conventional.
 - release-please opens — or updates — a single PR titled `chore(main): release X.Y.Z`.
 - Merging **that** PR bumps the version, writes `CHANGELOG.md`, tags `vX.Y.Z`, creates the GitHub Release, and publishes to npm.
 - Never hand-edit `package.json`'s `version`, `CHANGELOG.md`, or `.release-please-manifest.json`.
@@ -61,9 +61,14 @@ contributes nothing — no changelog entry, no version bump.
 | -------------------------------------------------------------------------- | -------------- | ---------------------- |
 | `fix:`                                                                     | patch          | yes — _Bug Fixes_      |
 | `perf:`                                                                    | patch          | yes — _Performance_    |
+| `revert:`                                                                  | patch          | yes — _Reverts_        |
 | `feat:`                                                                    | minor          | yes — _Features_       |
 | any `!` (e.g. `feat!:`, `fix(pg-client)!:`) or a `BREAKING CHANGE:` footer | **major**      | yes — _⚠ BREAKING_     |
-| `chore:` `docs:` `test:` `ci:` `refactor:` `style:` `build:` `revert:`     | none by itself | no (hidden by default) |
+| `chore:` `docs:` `test:` `ci:` `refactor:` `style:` `build:`               | none by itself | no (hidden by default) |
+
+`revert:` is easy to get wrong: it is **not** one of the quiet types — a
+revert-only merge opens a patch release PR on its own, which is usually what you
+want (the revert should ship).
 
 The non-releasing types are not wasted work: once _something_ triggers a release,
 they are part of the released commit range — they just cannot open a release PR on
@@ -112,17 +117,31 @@ fix(pg-helpers): promote referenced functions ahead of tables on restore
 Refs: PUR-4706
 ```
 
-### Squash-merge, so the PR title is the commit message
+### Squash-merge, and check the subject GitHub is about to use
 
-PRs here are squash-merged, which means **the PR title becomes the commit subject
-on `main`** — so the PR title must be a valid Conventional Commit. Individual
-commits inside a PR are not what release-please reads.
+Squash-merging is the convention here, which normally means **the PR title becomes
+the commit subject on `main`** — so the PR title must be a valid Conventional
+Commit. Individual commits inside a PR are not what release-please reads.
+
+Two caveats, because none of this is enforced by tooling:
+
+- The repo allows merge commits and rebase merges as well as squash, and `main`
+  has no branch protection — nothing stops a non-conventional subject from
+  landing. The requirement is upheld by the people merging, not by a check.
+- GitHub's squash default here is "commit message or PR title": for a
+  **single-commit** PR it pre-fills the _commit_ message, not the PR title. Read
+  the subject in the merge dialog before confirming, and correct it there if it
+  is not conventional.
+
+If this proves fragile in practice, the fix is a PR-title lint job (e.g.
+`amannn/action-semantic-pull-request`) plus restricting the merge button to
+squash-only — neither is in place today.
 
 ## 4. The pipeline, step by step
 
 Everything below is driven by [`.github/workflows/release-please.yml`](../.github/workflows/release-please.yml),
 which runs on every push to `main` (and can be triggered manually via
-`workflow_dispatch`).
+`workflow_dispatch`, though its jobs refuse to run on any ref but `main`).
 
 1. **You merge a PR to `main`.** The workflow starts. `concurrency: release_please`
    ensures only one run at a time.
@@ -139,34 +158,51 @@ which runs on every push to `main` (and can be triggered manually via
 5. **That PR's diff is machine-written and small**: the `version` field in
    `package.json`, a new section at the top of `CHANGELOG.md`, and the version in
    `.release-please-manifest.json`. Read it to confirm the version and changelog
-   look right; don't edit it (see §6).
+   look right; don't edit it (see [Files release-please owns](#6-files-release-please-owns--never-hand-edit)).
 6. **You merge the release PR.** The workflow runs again on that push, and this
    time release-please sets `release_created`, creates the `vX.Y.Z` git tag, and
    publishes a GitHub Release whose body is the changelog section.
-7. **Only then do the publish steps run** (they are all guarded by
-   `if: steps.release.outputs.release_created`): checkout, pnpm + Node from
-   [`.nvmrc`](../.nvmrc), `pnpm install --frozen-lockfile`, then `npm publish`.
-8. **`npm publish` runs `prepublishOnly`** — `build` → `eslint` → `test` — and
-   uploads the tarball to npm with a provenance attestation.
+7. **Only then does the `publish` job run**, gated on that `release_created`
+   output. It checks out **the commit release-please tagged** (the job's `sha`
+   output, not the ref that triggered the run), sets up pnpm and Node from
+   [`.nvmrc`](../.nvmrc), runs `pnpm install --frozen-lockfile`, then
+   `npm publish`.
+8. **`npm publish` runs the `prepublishOnly` gate** and uploads the tarball to npm
+   with a provenance attestation — see
+   [Publishing and permissions](#7-publishing-and-permissions).
 
 ## 5. What each file does
 
 **[`.github/workflows/release-please.yml`](../.github/workflows/release-please.yml)** —
-the whole pipeline. One job, two halves: the `googleapis/release-please-action@v5`
-step (always runs; manages the release PR, tag and GitHub Release), and the publish
-steps (guarded by `release_created`, so they only fire on the run that merged a
-release PR). Its `permissions` block is what makes both halves possible:
-`contents: write` for the tag and Release, `pull-requests: write` for the release
-PR, `id-token: write` for the npm OIDC exchange. Deps are installed with pnpm (the
-repo's package manager, and the only lockfile) but the publish itself uses
-`npm publish`, because trusted publishing is implemented by the npm CLI.
+the whole pipeline, as **two jobs** so that each holds only the permissions it
+needs:
+
+- `release-please` runs `googleapis/release-please-action@v5` on every push to
+  `main` and owns the release PR, the tag and the GitHub Release. It holds
+  `contents: write` and `pull-requests: write`, and **no** `id-token` — it cannot
+  publish.
+- `publish` runs only when the first job reports `release_created`, and holds
+  `contents: read` plus `id-token: write` (the npm OIDC exchange). It builds from
+  the tagged commit, so the tarball can never contain a later commit's source.
+
+Both jobs are guarded by `if: github.ref == 'refs/heads/main'`, so a
+`workflow_dispatch` run on another branch cannot tag, release or publish under
+this workflow's npm identity. Deps install with pnpm (the repo's package manager
+and only lockfile) but the publish itself uses `npm publish`, because trusted
+publishing is implemented by the npm CLI. `actions/setup-node` must stay at **v7
+or newer**: v6 exports a dummy `NODE_AUTH_TOKEN` whenever `registry-url` is set,
+which breaks the OIDC exchange.
 
 **[`release-please-config.json`](../release-please-config.json)** — declares one
 package at the repo root with `release-type: node`, which is what teaches
-release-please to bump `package.json` and write `CHANGELOG.md`. `last-release-sha`
-is pinned to `33832d8e56c042f8bc08b3ee9d3355a59e7eaf33`, the commit tagged
-`v1.1.0`: it stops the commit scan there so the first changelog covers only
-post-`v1.1.0` work instead of reaching back over the entire history.
+release-please to bump `package.json` and write `CHANGELOG.md`. `package-name` is
+the npm name, used in the changelog and release titles. `include-component-in-tag`
+is **`false`**, which matters: manifest mode defaults it to `true`, which would
+produce `pg-schema-dump-v1.2.0` tags instead of the `v1.2.0` format the repo has
+used since `v1.0.0`. `last-release-sha` is pinned to
+`33832d8e56c042f8bc08b3ee9d3355a59e7eaf33`, the commit tagged `v1.1.0`: it stops
+the commit scan there so the first changelog covers only post-`v1.1.0` work
+instead of reaching back over the entire history.
 
 **[`.release-please-manifest.json`](../.release-please-manifest.json)** — the
 recorded current version, `1.1.0`, matching `package.json`. Its presence is what
@@ -218,18 +254,26 @@ Publishing uses **npm [trusted publishing](https://docs.npmjs.com/trusted-publis
   the trust relationship — **renaming or moving the workflow file breaks
   publishing** until the npm entry is updated to match.
 - **It requires npm CLI ≥ 11.5.1 and Node ≥ 22.14** on the runner. Node comes from
-  [`.nvmrc`](../.nvmrc) (24), whose bundled npm satisfies this; see §10 if that ever
-  regresses.
+  [`.nvmrc`](../.nvmrc) (`24`), and current 24.x releases bundle npm 11.17.0, so
+  this is satisfied — but note Node 24.0.0 itself shipped npm 11.3.0, below the
+  floor. See [Troubleshooting](#10-troubleshooting) if it ever regresses.
+- **`actions/setup-node` must be v7 or newer.** v6 exports a dummy
+  `NODE_AUTH_TOKEN` whenever `registry-url` is set, which makes npm attempt token
+  auth and fail instead of using OIDC.
 
-`prepublishOnly` (`build` → `eslint` → `test`, including the Testcontainers e2e
-suite, which needs Docker — `ubuntu-latest` has it) runs inside `npm publish` and
-is the last gate before the tarball is uploaded.
+**The `prepublishOnly` gate.** `npm publish` runs the `prepublishOnly` script from
+[`package.json`](../package.json) — currently `build` → `eslint` → `test`, where
+`test` is the full vitest run including the Testcontainers e2e suite (which needs
+Docker; `ubuntu-latest` has it). This is the last gate before the tarball is
+uploaded, and it is defined in `package.json`, not here — treat that script as the
+authority if the two ever disagree.
 
 One ordering consequence worth knowing: the tag and GitHub Release are created
 **before** `npm publish` runs. If the publish fails — red test, npm outage,
 misconfigured trusted publisher — the tag and Release exist but npm has no such
-version. Do not delete or move the tag. Fix forward: land a commit on `main` and
-let the next release go out under a new version number.
+version. Do not delete or move the tag, and do not expect a re-run to fix it (see
+[How to force a release](#8-how-to-force-a-release)). Fix forward: land a commit on
+`main` and let the next release go out under a new version number.
 
 ## 8. How to force a release
 
@@ -244,17 +288,20 @@ let the next release go out under a new version number.
   ```
 
   This also works for jumping to a specific version deliberately (e.g. a
-  pre-planned `2.0.0`).
+  pre-planned `2.0.0`). Verified behaviour: the footer forces a release PR even
+  when every commit in range is a quiet type.
 
-- **Re-run the workflow without a new commit** — Actions → _Release Please_ → _Run
-  workflow_ (`workflow_dispatch`). Use this when a run failed for infrastructure
-  reasons.
+- **Re-run the workflow when the release PR itself failed to appear** — Actions →
+  _Release Please_ → _Run workflow_ (`workflow_dispatch`, on `main`; other refs are
+  refused). This is for runs that died before release-please did its work.
 
-- **Re-run only the publish** — re-running the workflow on the release-PR merge
-  commit is the supported route: release-please recognises the release already
-  exists, still reports `release_created`, and the publish steps run again. `npm
-publish` will refuse to overwrite a version that did make it to npm, which is the
-  safe outcome.
+- **A failed publish cannot be re-driven by re-running the workflow.** Once the tag
+  and GitHub Release exist, a re-run finds nothing left to release, so
+  `release_created` is not set and the `publish` job is skipped — the run goes green
+  having published nothing. There is no retry button for the publish leg: fix
+  forward with a new commit on `main` and let the next version go out. (A
+  tag-triggered publish workflow would change this, but it would also need its own
+  npm Trusted Publisher entry, since npm trusts a specific workflow filename.)
 
 ## 9. Known behaviours and gotchas
 
@@ -270,21 +317,29 @@ publish` will refuse to overwrite a version that did make it to npm, which is th
   release PR.
 - **The first release PR is not immediate.** The commits already on `main` after
   `v1.1.0` are all `chore`/`test`/`docs`, so nothing releasable exists yet. The
-  first release PR appears when a `fix:`/`feat:`/breaking commit lands — or
-  immediately, if you use a `Release-As:` footer per §8.
+  first release PR appears when a `fix:`/`feat:`/`revert:`/breaking commit lands —
+  or immediately, if you use a `Release-As:` footer per
+  [How to force a release](#8-how-to-force-a-release).
+- **Releases only ever come from `main`.** Both jobs carry
+  `if: github.ref == 'refs/heads/main'`, so a `workflow_dispatch` aimed at a feature
+  branch does nothing at all rather than cutting a release from unreviewed code.
+- **The publish builds the tagged commit, not the triggering ref.** The `publish`
+  job checks out the sha release-please tagged, so the published tarball always
+  matches the version it claims to be.
 
 ## 10. Troubleshooting
 
-| Symptom                                                        | Likely cause                                                                                                         | Fix                                                                                                                  |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Merged to `main`, no release PR appeared                       | Commit subjects are not Conventional Commits, or they are all non-releasing types (`chore`/`docs`/`test`/`ci`)       | Check the workflow run log — it lists the commits it parsed. Land a `fix:`/`feat:` commit, or use `Release-As:` (§8) |
-| Release PR proposes an unexpected version                      | `.release-please-manifest.json` is out of sync with what is on npm, or `last-release-sha` points at the wrong commit | Set the manifest to the version actually published, close the release PR, let the next run recompute                 |
-| Your change is missing from `CHANGELOG.md`                     | Its subject was unparseable, or its type is hidden by default                                                        | Nothing to fix retroactively; use a correct type next time (`revert:`/`chore:` are intentionally hidden)             |
-| `npm publish` fails with `ENEEDAUTH` / OIDC or 403 errors      | No Trusted Publisher on npmjs.com, or its org/repo/**workflow filename** doesn't match this workflow                 | Recreate the entry per §7. If the workflow file was renamed, update the npm entry to the new filename                |
-| `npm publish` fails saying trusted publishing is not supported | npm CLI on the runner is older than 11.5.1                                                                           | Add `- run: npm install -g npm@latest` (same `if:` guard) immediately before the `npm publish` step                  |
-| Publish failed on tests, but the tag and Release exist         | Expected ordering (§7)                                                                                               | Do not re-tag. Fix forward with a new commit on `main` and let the next version publish                              |
-| No release PR **and** the log shows a permissions error        | Repo/org setting "Allow GitHub Actions to create and approve pull requests" is off                                   | Enable it in Settings → Actions → General → Workflow permissions                                                     |
-| Publish succeeded but npm shows no provenance                  | Published from something other than this OIDC workflow (e.g. a laptop)                                               | Always release through the workflow; `npm publish` from a laptop is no longer part of the process                    |
+| Symptom                                                        | Likely cause                                                                                                                      | Fix                                                                                                                                                 |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Merged to `main`, no release PR appeared                       | Commit subjects are not Conventional Commits, or they are all quiet types (`chore`/`docs`/`test`/`ci`/`refactor`/`style`/`build`) | Check the workflow run log — it lists the commits it parsed. Land a `fix:`/`feat:` commit, or use a `Release-As:` footer                            |
+| Release PR proposes an unexpected version                      | `.release-please-manifest.json` is out of sync with what is on npm, or `last-release-sha` points at the wrong commit              | Set the manifest to the version actually published, close the release PR, let the next run recompute                                                |
+| Your change is missing from `CHANGELOG.md`                     | Its subject was unparseable, or its type is hidden by default (`chore`/`docs`/`test`/`ci`/`refactor`/`style`/`build`)             | Nothing to fix retroactively; use a releasing type next time. Note `revert:` is **not** hidden — it releases and appears                            |
+| `npm publish` fails with `ENEEDAUTH` / OIDC or 403 errors      | No Trusted Publisher on npmjs.com, its org/repo/**workflow filename** doesn't match, or `actions/setup-node` was downgraded to v6 | Recheck the npm entry ([§ Publishing](#7-publishing-and-permissions)). If the workflow file was renamed, update the entry. Keep `setup-node` at v7+ |
+| `npm publish` fails saying trusted publishing is not supported | npm CLI on the runner is older than 11.5.1                                                                                        | Add `- run: npm install -g npm@latest` immediately before the `npm publish` step in the `publish` job                                               |
+| Publish failed, but the tag and Release exist                  | Expected ordering — the tag precedes the publish                                                                                  | Do not re-tag and do not re-run (a re-run skips `publish` entirely). Fix forward with a new commit and let the next version go out                  |
+| The workflow ran but every job was skipped                     | It was dispatched on a branch other than `main`                                                                                   | Re-dispatch it against `main`; releases are deliberately restricted to that ref                                                                     |
+| No release PR **and** the log shows a permissions error        | Repo/org setting "Allow GitHub Actions to create and approve pull requests" is off                                                | Enable it in Settings → Actions → General → Workflow permissions                                                                                    |
+| Publish succeeded but npm shows no provenance                  | Published from something other than this OIDC workflow (e.g. a laptop)                                                            | Always release through the workflow; `npm publish` from a laptop is no longer part of the process                                                   |
 
 ## 11. Reference
 

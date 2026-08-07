@@ -22,8 +22,8 @@ CLI usage: `pg-schema-dump --url postgres://user:pass@host/db --out ./dir`. With
 
 **Every commit message MUST follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)** — `<type>(<scope>): <description>`. This is a hard requirement, not a style preference: [release-please](https://github.com/googleapis/release-please) parses the commit subjects on `main` to decide the next version, so a non-conforming subject is silently dropped from the changelog and never triggers a release.
 
-- Bumps: `fix:`/`perf:` → patch, `feat:` → minor, any `!` or a `BREAKING CHANGE:` footer → major; `chore:`/`docs:`/`test:`/`ci:`/`refactor:`/`style:`/`build:` do not release on their own.
-- PRs are squash-merged, so **the PR title is the commit subject** and must be conventional too. The org-wide `PUR-1234: <message>` prefix does **not** work here — use `fix(scope): …` with the ticket in a footer.
+- Bumps: `fix:`/`perf:`/`revert:` → patch, `feat:` → minor, any `!` or a `BREAKING CHANGE:` footer → major; `chore:`/`docs:`/`test:`/`ci:`/`refactor:`/`style:`/`build:` do not release on their own. (`revert:` is **not** a quiet type — a revert-only merge cuts a patch release.)
+- PRs are squash-merged, so **the PR title is normally the commit subject** and must be conventional too — but nothing enforces this (no branch protection, no title lint), and GitHub pre-fills the _commit_ message for single-commit PRs, so check the subject in the merge dialog. The org-wide `PUR-1234: <message>` prefix does **not** work here — use `fix(scope): …` with the ticket in a footer.
 - `version` in `package.json`, `CHANGELOG.md` and `.release-please-manifest.json` are owned by release-please — **never hand-edit them**.
 
 Full process — the release PR, tagging, the GitHub Release, and npm OIDC trusted publishing — is documented in [docs/release-please.md](docs/release-please.md).
