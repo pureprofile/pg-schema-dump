@@ -235,11 +235,11 @@ export default defineConfig({
         'typescript/no-explicit-any': 'off',
 
         // TODO: evaluate this rule in the future
-        // occurrences in codebase: 2
+        // occurrences in codebase: 1
         // complexity: safe
-        // 2 `error` catch bindings shadowing an outer `error` declaration in restore-failures.test.ts
+        // 1 `dir` declaration in restore-failures.test.ts shadowing the suite-level `dir`
         // type: best-practice
-        // consistent, non-shadowed error variable naming improves readability across nested catch blocks
+        // non-shadowed naming improves readability; renaming the inner variable is a trivial follow-up
         'eslint/no-shadow': 'off',
 
         // TODO: evaluate this rule in the future
@@ -268,15 +268,6 @@ export default defineConfig({
         // type: bug-prevention
         // unused variables indicate dead code or missing logic that should be wired up
         'eslint/no-unused-vars': 'off',
-
-        // TODO: evaluate this rule in the future
-        // occurrences in codebase: 1
-        // complexity: dangerous
-        // 1 assignment to a caught exception parameter in restore-failures.test.ts — reassigning it is
-        // deliberate test setup here, but needs a rename/refactor to satisfy the rule cleanly
-        // type: best-practice
-        // reassigning the exception parameter makes the original caught value hard to trace
-        'eslint/no-ex-assign': 'off',
       },
     },
   ],

@@ -69,19 +69,19 @@ test('reports every unapplied file with its own error instead of only the last',
   await client.switchDatabase('postgres');
   await client.ensureEmptyDb(DB);
 
-  const error: Error | null = null;
+  let restoreError: Error | null = null;
   try {
     await client.restoreSchema({ src: dir });
   } catch (error) {
-    error = error as Error;
+    restoreError = error as Error;
   }
 
-  expect(error).not.toBeNull();
-  expect(error!.message).toContain('2 file(s) could not be applied');
+  expect(restoreError).not.toBeNull();
+  expect(restoreError!.message).toContain('2 file(s) could not be applied');
   // both failures are named, each with its own cause
-  expect(error!.message).toContain('table.public.bad_one.sql');
-  expect(error!.message).toContain('table.public.bad_two.sql');
-  expect(error!.message).toMatch(/nonexistent_type/);
+  expect(restoreError!.message).toContain('table.public.bad_one.sql');
+  expect(restoreError!.message).toContain('table.public.bad_two.sql');
+  expect(restoreError!.message).toMatch(/nonexistent_type/);
   // the healthy file was still applied
   await client.switchDatabase(DB);
   const rows = await client.rows<{ count: string }>(`SELECT count(*) AS count FROM pg_tables WHERE tablename = 'good'`);
