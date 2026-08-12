@@ -1,11 +1,12 @@
 import { sortBy } from 'lodash';
-import { Attribute } from './pg-objects/tables';
+
+import type { Attribute } from './pg-objects/tables';
 
 export function normalizedSrc(src: string) {
   if (typeof src !== 'string') {
     return src;
   }
-  return src.replace(/\r\n/g, '\n').replace(/\n\r/g, '\n').replace(/\r/g, '\n').replace(/\t/g, '  ');
+  return src.replaceAll('\r\n', '\n').replaceAll('\n\r', '\n').replaceAll('\r', '\n').replaceAll('	', '  ');
 }
 
 export function unquoted(value: string) {
@@ -57,7 +58,7 @@ export function quoteIdent(value: string) {
   if (/^[a-z_][a-z0-9_$]*$/.test(value) && !ReservedWords.has(value)) {
     return value;
   }
-  return `"${value.replace(/"/g, '""')}"`;
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 /** Quotes a `schema.name` pair, quoting each part independently. */

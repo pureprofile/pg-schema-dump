@@ -1,4 +1,4 @@
-import { ResolvedScope } from '../scope';
+import type { ResolvedScope } from '../scope';
 
 /**
  * Relation kinds whose presence in a dump is decided by the scope.

@@ -1,4 +1,5 @@
 import { Client } from 'pg';
+
 import { PgClient } from '../../src/pg-client';
 import { collectConstraints } from '../../src/pg-objects/constraints';
 

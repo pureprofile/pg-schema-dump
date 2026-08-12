@@ -1,5 +1,7 @@
+import * as path from 'node:path';
+
 import * as fs from 'fs-extra';
-import * as path from 'path';
+
 import { PgClient } from '../../src/pg-client';
 
 // The scope closure is the newest and most intricate SQL in the tool, and every

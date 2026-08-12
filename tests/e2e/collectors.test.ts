@@ -1,13 +1,14 @@
 import { Client } from 'pg';
+
 import { PgClient } from '../../src/pg-client';
 import { collectExtensions } from '../../src/pg-objects/extensions';
-import { collectTypes } from '../../src/pg-objects/types';
+import { collectFunctions } from '../../src/pg-objects/functions';
+import { collectIndexes } from '../../src/pg-objects/indexes';
 import { collectSequences } from '../../src/pg-objects/sequences';
 import { collectTables } from '../../src/pg-objects/tables';
-import { collectIndexes } from '../../src/pg-objects/indexes';
-import { collectViews } from '../../src/pg-objects/views';
 import { collectTriggers } from '../../src/pg-objects/triggers';
-import { collectFunctions } from '../../src/pg-objects/functions';
+import { collectTypes } from '../../src/pg-objects/types';
+import { collectViews } from '../../src/pg-objects/views';
 
 const COLLECTORS_DB = 'pgsd-collectors';
 

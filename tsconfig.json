@@ -6,7 +6,7 @@
     // "incremental": true,                   /* Enable incremental compilation */
     "target": "ES2022" /* Specify ECMAScript target version: 'ES3' (default), 'ES5', 'ES2015', 'ES2016', 'ES2017', 'ES2018', 'ES2019', 'ES2020', or 'ESNEXT'. */,
     "lib": ["ES2023"],
-    "module": "commonjs" /* Specify module code generation: 'none', 'commonjs', 'amd', 'system', 'umd', 'es2015', 'es2020', or 'ESNext'. */,
+    "module": "node16" /* Package has no "type": "module", so node16 still emits CommonJS; required by moduleResolution=node16. */,
     // "lib": [],                             /* Specify library files to be included in the compilation. */
     // "allowJs": true,                       /* Allow javascript files to be compiled. */
     // "checkJs": true,                       /* Report errors in .js files. */
@@ -42,8 +42,7 @@
     "noFallthroughCasesInSwitch": true /* Report errors for fallthrough cases in switch statement. */,
 
     /* Module Resolution Options */
-    "moduleResolution": "node10" /* Specify module resolution strategy: 'node' (Node.js) or 'classic' (TypeScript pre-1.6). */,
-    "ignoreDeprecations": "6.0" /* Silence the TS6 deprecation error for moduleResolution=node10; package is CJS with no exports map so node16 is not viable. */,
+    "moduleResolution": "node16" /* node10 was removed by tsgolint (type-aware oxlint); node16 resolves correctly for this CJS package. */,
     // "baseUrl": "./",                       /* Base directory to resolve non-absolute module names. */
     // "paths": {},                           /* A series of entries which re-map imports to lookup locations relative to the 'baseUrl'. */
     // "rootDirs": [],                        /* List of root folders whose combined content represents the structure of the project at runtime. */

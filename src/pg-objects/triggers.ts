@@ -1,6 +1,8 @@
-import { Client } from 'pg';
+import type { Client } from 'pg';
+
 import { notExtensionOwned, pgQuoteStrings } from '../pg-helpers';
-import { resolveScope, ResolvedScope } from '../scope';
+import type { ResolvedScope } from '../scope';
+import { resolveScope } from '../scope';
 
 export async function collectTriggers(
   client: Client,

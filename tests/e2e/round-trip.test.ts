@@ -1,5 +1,7 @@
+import * as path from 'node:path';
+
 import * as fs from 'fs-extra';
-import * as path from 'path';
+
 import { PgClient } from '../../src/pg-client';
 
 // The tests in this file are intentionally sequential and stateful: each step
@@ -73,7 +75,7 @@ test('dump source db and verify expected file prefixes present', async () => {
   // the file for the table that owns them, which is what keeps the file count
   // manageable on a large schema.
   expect(files.some((f) => f.startsWith('index.') || f.startsWith('trigger.'))).toBe(false);
-  const childTable = fs.readFileSync(path.join(dumpDir1, 'table.public.child.sql'), 'utf8');
+  const childTable = fs.readFileSync(path.join(dumpDir1, 'table.public.child.sql'), 'utf-8');
   expect(childTable).toContain('CREATE INDEX IF NOT EXISTS idx_child_parent');
   expect(childTable).toContain('CREATE TRIGGER trg_child');
   expect(childTable).toContain('ALTER SEQUENCE public.child_id_seq OWNED BY public.child.id;');
@@ -94,8 +96,8 @@ test('re-dump destination and verify key objects are present', async () => {
   await client.switchDatabase(DST_DB);
   await client.dumpSchema({ out: dumpDir2 });
 
-  const files1 = fs.readdirSync(dumpDir1).sort();
-  const files2 = fs.readdirSync(dumpDir2).sort();
+  const files1 = fs.readdirSync(dumpDir1).toSorted();
+  const files2 = fs.readdirSync(dumpDir2).toSorted();
 
   // The round trip is exact in both directions. It previously was not: serial
   // shorthand made Postgres auto-create a sequence that collided with the one
@@ -105,8 +107,8 @@ test('re-dump destination and verify key objects are present', async () => {
   expect(files2).toEqual(files1);
 
   for (const f of files1) {
-    const content1 = fs.readFileSync(path.join(dumpDir1, f), 'utf8');
-    const content2 = fs.readFileSync(path.join(dumpDir2, f), 'utf8');
+    const content1 = fs.readFileSync(path.join(dumpDir1, f), 'utf-8');
+    const content2 = fs.readFileSync(path.join(dumpDir2, f), 'utf-8');
     expect(content2).toBe(content1);
   }
 });
@@ -161,7 +163,7 @@ test('restores a foreign key cycle and a multi-column key referencing a UNIQUE c
       WHERE conname IN ('node_label_fk','label_node_fk','membership_pkey','widget_uk','child_widget_fk','bounded_amount_chk')
       ORDER BY 1
     `);
-    const byName: { [name: string]: string } = {};
+    const byName: Record<string, string> = {};
     for (const row of constraints) {
       byName[row.name] = row.def;
     }

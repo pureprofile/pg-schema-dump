@@ -1,6 +1,8 @@
-import { Client } from 'pg';
+import type { Client } from 'pg';
+
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
-import { resolveScope, ResolvedScope } from '../scope';
+import type { ResolvedScope } from '../scope';
+import { resolveScope } from '../scope';
 import { DEPENDABLE_RELATION_KINDS, inScopeFunctionOidsSql } from './scope-sql';
 
 /**
@@ -41,7 +43,7 @@ export interface CollectedViews {
    * have several. Reported from here rather than re-derived by a second query, so the
    * integrity log cannot drift from what was actually dumped.
    */
-  excluded: Array<{ view: string; cause: string }>;
+  excluded: { view: string; cause: string }[];
 }
 
 export async function collectViews(
@@ -52,7 +54,7 @@ export async function collectViews(
   }
 ): Promise<CollectedViews> {
   const scope = options.scope || resolveScope();
-  const skipSchemas = options.skipSchemas;
+  const { skipSchemas } = options;
   const clauses = [
     `c.relkind = 'v'`,
     notExtensionOwned('pg_class', 'c.oid'),
@@ -129,7 +131,7 @@ export async function collectViews(
   for (const candidate of candidates) {
     if (candidate.missing.length > 0) {
       keepable.delete(candidate.key);
-      causeFor.set(candidate.key, [...candidate.missing].sort()[0]);
+      causeFor.set(candidate.key, [...candidate.missing].toSorted()[0]);
     }
   }
   let settled = false;
@@ -138,7 +140,7 @@ export async function collectViews(
     for (const candidate of keepable.values()) {
       // A view dependency this collector never returned at all - a skipped schema, an
       // extension's own view - is as absent from the dump as an excluded one.
-      const brokenDep = [...candidate.viewDeps].sort().find((dep) => !keepable.has(dep));
+      const brokenDep = [...candidate.viewDeps].toSorted().find((dep) => !keepable.has(dep));
       if (brokenDep) {
         keepable.delete(candidate.key);
         causeFor.set(candidate.key, brokenDep);

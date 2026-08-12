@@ -2,7 +2,7 @@ import { parse as pgParseArray } from 'postgres-array';
 
 export function pgQuoteString(item: string): string {
   if (typeof item === 'string') {
-    return `'${item.replace(/'/g, `''`)}'`;
+    return `'${item.replaceAll("'", `''`)}'`;
   }
   return item;
 }

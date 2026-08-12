@@ -1,12 +1,14 @@
-import * as fs from 'fs-extra';
-import * as path from 'path';
+import * as path from 'node:path';
+
 import autoBind from 'auto-bind';
-import { log } from './utils';
-import { normalizedSrc, quoteIdent, quoteQualified, sortedAttributes, unquoted } from './fs-schema-helpers';
+import * as fs from 'fs-extra';
 import { sortBy } from 'lodash';
-import { Attribute } from './pg-objects/tables';
-import { Constraint } from './pg-objects/constraints';
-import { OwnedBy } from './pg-objects/sequences';
+
+import { normalizedSrc, quoteIdent, quoteQualified, sortedAttributes, unquoted } from './fs-schema-helpers';
+import type { Constraint } from './pg-objects/constraints';
+import type { OwnedBy } from './pg-objects/sequences';
+import type { Attribute } from './pg-objects/tables';
+import type { log } from './utils';
 
 export const F_EXTENSION_PREFIX = 'extension.';
 export const F_SCHEMA_PREFIX = 'schema.';
@@ -48,7 +50,10 @@ function statementSql(src: string): string {
 export class FsSchema {
   public root: string;
 
-  constructor(root: string, private logger: typeof log | null) {
+  constructor(
+    root: string,
+    private readonly logger: typeof log | null
+  ) {
     this.root = root;
     autoBind(this);
   }
@@ -67,8 +72,8 @@ export class FsSchema {
     });
   }
 
-  read(fName: string) {
-    return fs.readFile(path.resolve(this.root, fName), 'utf8');
+  async read(fName: string) {
+    return await fs.readFile(path.resolve(this.root, fName), 'utf-8');
   }
 
   outputFileSyncSafe(fileName: string, fileExtension: string, content: string) {
@@ -160,9 +165,9 @@ export class FsSchema {
     table: string;
     attributes: Attribute[];
     constraints?: Constraint[];
-    indexes?: Array<{ src: string }>;
-    triggers?: Array<{ src: string }>;
-    ownedSequences?: Array<{ schema: string; name: string; ownedBy: OwnedBy }>;
+    indexes?: { src: string }[];
+    triggers?: { src: string }[];
+    ownedSequences?: { schema: string; name: string; ownedBy: OwnedBy }[];
   }) {
     const { schema, table, attributes } = t;
     const constraints = t.constraints || [];
