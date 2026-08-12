@@ -40,8 +40,8 @@ Commit message _format_ is a separate, equally hard requirement, and is covered 
 ## Commands
 
 - `npm run build` — `rimraf ./dist && tsc`. The published artifact is `dist/`; `main` is `dist/index.js`, `bin` is `dist/bin.js`.
-- `pnpm test` — vitest, both projects (`unit` + `e2e`). `prepublishOnly` runs `build` → `eslint` → `test`.
-- `npm run eslint` — lint `./src` (`--ext=ts,tsx`).
+- `pnpm test` — vitest, both projects (`unit` + `e2e`). `prepublishOnly` runs `check` → `build` → `test`.
+- `pnpm check` / `pnpm fix` — ultracite (oxlint + oxfmt), config in `oxlint.config.ts` / `oxfmt.config.ts`. `check` reports, `fix` applies.
 - `pnpm test:unit` — pure helper tests, no database needed. `pnpm test:e2e` — needs Docker.
 - `pnpm test:coverage` — what CI actually runs. [vitest.config.ts](vitest.config.ts) gates coverage at **90%** lines/statements/functions. The gate is on the aggregate across `src` (`perFile: false`, `src/bin.ts` excluded, no branch threshold), so it is a floor against erosion, not a per-change standard — a small untested addition can slip under it on the totals. Run this before pushing; `pnpm test` alone will not tell you.
 - Run a single test: `pnpm exec vitest run tests/e2e/dump-db.test.ts` (add `-t "<name>"` to filter).
@@ -145,7 +145,7 @@ Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by 
 
 ## Conventions
 
-- TypeScript, strict. Lint config extends `eslint-config-pureprofile`; Prettier config comes from `eslint-config-pureprofile/prettier-config`. Don't hand-format — run lint/prettier. Hooks are [lefthook](lefthook.yml): `pre-commit` runs eslint `--fix` + prettier over staged files and re-stages them, `pre-push` runs `pnpm build`. Note neither hook runs the tests — `prepublishOnly` (`build` → `eslint` → `test`) is the gate that does.
+- TypeScript, strict. Lint and format come from [ultracite](https://github.com/haydenbleasel/ultracite) (oxlint + oxfmt), configured in `oxlint.config.ts` / `oxfmt.config.ts`. Don't hand-format — run `pnpm fix`. Hooks are [lefthook](lefthook.yml): `pre-commit` runs `pnpm fix` over staged files and re-stages the fixes, `pre-push` runs `pnpm build`. Note neither hook runs the tests — `prepublishOnly` (`check` → `build` → `test`) is the gate that does.
 - `FsSchema` uses `auto-bind` so its `write*` methods can be passed as callbacks (`.then(all(fsSchema.writeTable))`) — keep them as methods.
 - Adding a new object kind that gets **its own file** means four coordinated edits: a `collect*` in `src/pg-objects/`, a `write*` + `F_*_PREFIX` in `fs-schema.ts`, that prefix placed in `RESTORE_ORDER`, and a line in `dumpSchema`'s `Promise.all`. A prefix missing from `RESTORE_ORDER` sorts last, which usually still works but only by luck.
 - Adding one that belongs **to a table** (like indexes, triggers or non-FK constraints) instead means collecting it, grouping it by `schema.table` in `dumpSchema`, and emitting it from `writeTable` in a sorted order.
