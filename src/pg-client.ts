@@ -1,4 +1,5 @@
 import * as pg from 'pg';
+import type { QueryResultRow } from 'pg';
 import { pgQuoteStrings } from './pg-helpers';
 import { log } from './utils';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
@@ -98,14 +99,14 @@ export class PgClient {
   }
 
   // wrapper around client.query that does not keep the connection open
-  async query<T>(query: string) {
+  async query<T extends QueryResultRow = QueryResultRow>(query: string) {
     await this.connect();
     const result = await this._client!.query<T>(query);
     await this.end();
     return result;
   }
 
-  async rows<T>(query: string) {
+  async rows<T extends QueryResultRow = QueryResultRow>(query: string) {
     const result = await this.query<T>(query);
     return result.rows;
   }
