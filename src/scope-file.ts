@@ -1,5 +1,6 @@
 import * as fs from 'fs-extra';
-import { ScopeOptions } from './scope';
+
+import type { ScopeOptions } from './scope';
 
 interface ScopeManifest {
   schemas?: unknown;
@@ -14,22 +15,22 @@ function assertStringArray(value: unknown, field: string, filePath: string): str
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
     throw new Error(`scope file ${filePath}: "${field}" must be an array of strings`);
   }
-  return value as string[];
+  return value;
 }
 
 export function loadScopeFile(filePath: string): ScopeOptions {
   let raw: string;
   try {
-    raw = fs.readFileSync(filePath, 'utf8');
-  } catch (err) {
-    throw new Error(`scope file ${filePath}: could not be read: ${(err as Error).message}`);
+    raw = fs.readFileSync(filePath, 'utf-8');
+  } catch (error) {
+    throw new Error(`scope file ${filePath}: could not be read: ${(error as Error).message}`, { cause: error });
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`scope file ${filePath}: not valid JSON: ${(err as Error).message}`);
+  } catch (error) {
+    throw new Error(`scope file ${filePath}: not valid JSON: ${(error as Error).message}`, { cause: error });
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -44,7 +45,7 @@ export function loadScopeFile(filePath: string): ScopeOptions {
   // Keys starting with `$` or `//` are allowed so a manifest can document itself.
   const known = ['schemas', 'tables', 'functions'];
   const unknown = Object.keys(parsed as Record<string, unknown>).filter(
-    (key) => known.indexOf(key) === -1 && key.indexOf('$') !== 0 && key.indexOf('//') !== 0
+    (key) => !known.includes(key) && !key.startsWith('$') && !key.startsWith('//')
   );
   if (unknown.length > 0) {
     throw new Error(
@@ -111,7 +112,7 @@ export function validateScope(scope: ScopeOptions, source: string): ScopeOptions
   return scope;
 }
 
-export function mergeScope(...parts: Array<ScopeOptions | undefined>): ScopeOptions {
+export function mergeScope(...parts: (ScopeOptions | undefined)[]): ScopeOptions {
   const includeSchemas: string[] = [];
   const includeTables: string[] = [];
   const includeFunctions: string[] = [];
@@ -126,8 +127,8 @@ export function mergeScope(...parts: Array<ScopeOptions | undefined>): ScopeOpti
   }
 
   return {
-    includeSchemas: Array.from(new Set(includeSchemas)),
-    includeTables: Array.from(new Set(includeTables)),
-    includeFunctions: Array.from(new Set(includeFunctions)),
+    includeSchemas: [...new Set(includeSchemas)],
+    includeTables: [...new Set(includeTables)],
+    includeFunctions: [...new Set(includeFunctions)],
   };
 }

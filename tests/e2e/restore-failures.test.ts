@@ -1,5 +1,7 @@
+import * as path from 'node:path';
+
 import * as fs from 'fs-extra';
-import * as path from 'path';
+
 import { PgClient } from '../../src/pg-client';
 
 // A restore that cannot complete has to say which files were left unapplied and
@@ -67,19 +69,19 @@ test('reports every unapplied file with its own error instead of only the last',
   await client.switchDatabase('postgres');
   await client.ensureEmptyDb(DB);
 
-  let error: Error | null = null;
+  let restoreError: Error | null = null;
   try {
     await client.restoreSchema({ src: dir });
-  } catch (err) {
-    error = err as Error;
+  } catch (error) {
+    restoreError = error as Error;
   }
 
-  expect(error).not.toBeNull();
-  expect(error!.message).toContain('2 file(s) could not be applied');
+  expect(restoreError).not.toBeNull();
+  expect(restoreError!.message).toContain('2 file(s) could not be applied');
   // both failures are named, each with its own cause
-  expect(error!.message).toContain('table.public.bad_one.sql');
-  expect(error!.message).toContain('table.public.bad_two.sql');
-  expect(error!.message).toMatch(/nonexistent_type/);
+  expect(restoreError!.message).toContain('table.public.bad_one.sql');
+  expect(restoreError!.message).toContain('table.public.bad_two.sql');
+  expect(restoreError!.message).toMatch(/nonexistent_type/);
   // the healthy file was still applied
   await client.switchDatabase(DB);
   const rows = await client.rows<{ count: string }>(`SELECT count(*) AS count FROM pg_tables WHERE tablename = 'good'`);
@@ -108,7 +110,7 @@ test('keeps a unique index that only a foreign key on another table depends on',
     await client.switchDatabase(src);
     await client.dumpSchema({ out: dir });
 
-    const countryFile = fs.readFileSync(path.join(dir, 'table.public.country.sql'), 'utf8');
+    const countryFile = fs.readFileSync(path.join(dir, 'table.public.country.sql'), 'utf-8');
     expect(countryFile).toContain('country_code_idx');
     // the primary key's own index is still excluded, since the constraint recreates it
     expect(countryFile).not.toContain('CREATE UNIQUE INDEX IF NOT EXISTS country_pkey');

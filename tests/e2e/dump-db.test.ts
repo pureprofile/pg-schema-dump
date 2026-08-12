@@ -1,5 +1,7 @@
+import * as path from 'node:path';
+
 import * as fs from 'fs-extra';
-import * as path from 'path';
+
 import { PgClient } from '../../src/pg-client';
 
 const TEST_DB_NAME = `pg-schema-dump-test`;
@@ -50,7 +52,7 @@ test('empty database should produce empty dump', async () => {
 
 test('should create and dump a function', async () => {
   const fnName = `function.public.is_my_num_one_two_three.sql`;
-  const fnBody = fs.readFileSync(path.resolve(__dirname, 'files', fnName), 'utf8');
+  const fnBody = fs.readFileSync(path.resolve(__dirname, 'files', fnName), 'utf-8');
   await client.query(fnBody);
   await client.dumpSchema({
     out: dumpDirectory,
@@ -61,6 +63,6 @@ test('should create and dump a function', async () => {
   expect(dirContents.includes('schema.public.sql')).toBe(true);
   expect(dirContents.includes(fnName)).toBe(true);
 
-  const fileContents = fs.readFileSync(path.resolve(dumpDirectory, fnName), 'utf8');
+  const fileContents = fs.readFileSync(path.resolve(dumpDirectory, fnName), 'utf-8');
   expect(fileContents).toBe(fnBody);
 });

@@ -1,7 +1,9 @@
-import { Client } from 'pg';
-import { pgStringArray, pgQuoteString, pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
-import { resolveScope, ResolvedScope } from '../scope';
+import type { Client } from 'pg';
+
 import { quoteQualified } from '../fs-schema-helpers';
+import { pgStringArray, pgQuoteString, pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
+import type { ResolvedScope } from '../scope';
+import { resolveScope } from '../scope';
 import { inScopeFunctionOidsSql } from './scope-sql';
 
 export async function collectTypes(client: Client, options: { skipSchemas?: string[]; scope?: ResolvedScope } = {}) {
@@ -71,13 +73,11 @@ export async function collectTypes(client: Client, options: { skipSchemas?: stri
       array_agg("enum_label" ORDER BY "enum_order") AS "enum_values"
     FROM types GROUP BY 1, 2 ORDER BY 1, 2
   `);
-  return result.rows.map((row) => {
-    return {
-      schema: row.schema,
-      name: row.type_name,
-      src: `CREATE TYPE ${quoteQualified(row.schema, row.type_name)} AS ENUM (${pgStringArray(row.enum_values).map(
-        pgQuoteString
-      )})`,
-    };
-  });
+  return result.rows.map((row) => ({
+    schema: row.schema,
+    name: row.type_name,
+    src: `CREATE TYPE ${quoteQualified(row.schema, row.type_name)} AS ENUM (${pgStringArray(row.enum_values).map(
+      pgQuoteString
+    )})`,
+  }));
 }

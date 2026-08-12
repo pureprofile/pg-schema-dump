@@ -273,7 +273,8 @@ This project uses **pnpm** and requires **Node 24** (see [.nvmrc](.nvmrc)).
 ```bash
 pnpm install
 pnpm build          # rimraf ./dist && tsc
-pnpm eslint         # lint ./src
+pnpm check          # ultracite (oxlint + oxfmt) — lint/format check
+pnpm fix            # ultracite — apply lint/format fixes
 pnpm test:unit      # unit project only (no database required)
 pnpm test:e2e       # e2e project only (requires Docker)
 pnpm test           # both projects
@@ -298,10 +299,10 @@ floor it is, not as the standard for a change. Run it locally before pushing.
 
 [lefthook](https://github.com/evilmartians/lefthook) is installed via the `prepare` script and runs:
 
-- **pre-commit** — `eslint --fix` (on `src`) and `prettier --write` on staged files, re-staging fixes.
+- **pre-commit** — `pnpm fix` (ultracite) on staged files, re-staging the fixes.
 - **pre-push** — `pnpm build`.
 
-CI runs build, lint, and the full test suite with coverage on every push and pull request to `main`.
+CI runs install, lint (`pnpm check`), build, and the full test suite with coverage, in that order, on every push and pull request to `main`.
 
 ### Releases
 

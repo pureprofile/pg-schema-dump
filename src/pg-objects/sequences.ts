@@ -1,7 +1,9 @@
-import { Client } from 'pg';
-import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
-import { resolveScope, ResolvedScope } from '../scope';
+import type { Client } from 'pg';
+
 import { quoteQualified } from '../fs-schema-helpers';
+import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
+import type { ResolvedScope } from '../scope';
+import { resolveScope } from '../scope';
 
 /**
  * The column a sequence belongs to.
@@ -111,16 +113,15 @@ export async function collectSequences(
       ${scopeClause}
     ORDER BY 1, 2
   `);
-  return result.rows.map((row) => {
-    return {
-      schema: row.schema,
-      name: row.name,
-      // The matching ALTER SEQUENCE ... OWNED BY is emitted into the owning
-      // table's file, not here: it cannot run until that table exists, and a
-      // multi-statement file runs in one implicit transaction, so failing that
-      // ALTER would roll the CREATE SEQUENCE back with it.
-      ownedBy: row.ownedBy,
-      src: `
+  return result.rows.map((row) => ({
+    schema: row.schema,
+    name: row.name,
+    // The matching ALTER SEQUENCE ... OWNED BY is emitted into the owning
+    // table's file, not here: it cannot run until that table exists, and a
+    // multi-statement file runs in one implicit transaction, so failing that
+    // ALTER would roll the CREATE SEQUENCE back with it.
+    ownedBy: row.ownedBy,
+    src: `
         CREATE SEQUENCE ${quoteQualified(row.schema, row.name)}
         AS ${row.seqtype}
         INCREMENT ${row.seqincrement}
@@ -130,6 +131,5 @@ export async function collectSequences(
         CACHE ${row.seqcache}
         ${row.seqcycle ? 'CYCLE' : 'NO CYCLE'}
       `.trim(),
-    };
-  });
+  }));
 }

@@ -1,6 +1,8 @@
-import { Client } from 'pg';
+import type { Client } from 'pg';
+
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
-import { resolveScope, ResolvedScope } from '../scope';
+import type { ResolvedScope } from '../scope';
+import { resolveScope } from '../scope';
 
 export interface Attribute {
   table: string;

@@ -1,6 +1,8 @@
-import { Client } from 'pg';
+import type { Client } from 'pg';
+
 import { pgQuoteStrings, notExtensionOwned } from '../pg-helpers';
-import { resolveScope, ResolvedScope } from '../scope';
+import type { ResolvedScope } from '../scope';
+import { resolveScope } from '../scope';
 
 export type ConstraintType = 'p' | 'u' | 'c' | 'x' | 'f';
 
@@ -21,7 +23,7 @@ export interface CollectedConstraints {
    * cannot drift from what was actually dumped - and unlike a re-derivation, this
    * covers multi-column keys too.
    */
-  droppedForeignKeys: Array<{ schema: string; table: string; name: string; target: string }>;
+  droppedForeignKeys: { schema: string; table: string; name: string; target: string }[];
 }
 
 export async function collectConstraints(

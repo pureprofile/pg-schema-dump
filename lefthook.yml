@@ -1,15 +1,8 @@
 pre-commit:
   jobs:
-    # Lint + autofix staged source files, then re-stage the fixes.
-    - name: eslint
-      run: pnpm exec eslint --ext=ts,tsx --fix {staged_files}
+    - run: pnpm fix --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
-      glob: 'src/**/*.{ts,tsx}'
-    # Format all staged files prettier understands, then re-stage.
-    - name: prettier
-      run: pnpm exec prettier --write {staged_files}
-      stage_fixed: true
-      glob: '*.{ts,tsx,js,jsx,json,md,yml,yaml}'
+      glob: '*.{js,jsx,ts,tsx,cjs,mjs,json,jsonc,css,scss}'
 
 pre-push:
   jobs:

@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 
-import * as path from 'path';
-import * as yargs from 'yargs';
+import * as path from 'node:path';
+
 import * as pg from 'pg';
-import { log } from './utils';
+import * as yargs from 'yargs';
+
 import { PgClient } from './index';
 import { loadScopeFile, mergeScope, validateScope } from './scope-file';
+import { log } from './utils';
 
 async function main() {
-  const argv = yargs.options({
+  const { argv } = yargs.options({
     url: { type: 'string', demandOption: true, description: 'url connection string to the pg database' },
     out: { type: 'string', description: 'path to dump the db into' },
     'scope-file': { type: 'string', description: 'path to a JSON scope manifest ({ schemas, tables, functions })' },
@@ -19,18 +21,17 @@ async function main() {
       string: true,
       description: `'schema.function' to include in the dump scope (escape hatch)`,
     },
-  }).argv;
+  });
 
-  // eslint-disable-next-line no-process-env
   const env = process.env.NODE_ENV || 'development';
-  const url = argv.url;
+  const { url } = argv;
 
-  const scopeFilePath = argv['scope-file'] as string | undefined;
+  const scopeFilePath = argv['scope-file'];
   const fileScope = scopeFilePath ? loadScopeFile(scopeFilePath) : undefined;
   const flagScope = {
-    includeSchemas: argv['include-schema'] as string[] | undefined,
-    includeTables: argv['include-table'] as string[] | undefined,
-    includeFunctions: argv['include-function'] as string[] | undefined,
+    includeSchemas: argv['include-schema'],
+    includeTables: argv['include-table'],
+    includeFunctions: argv['include-function'],
   };
   // Validated after merging so CLI flags face the same 'schema.name' rule as a
   // manifest; a bare name would otherwise activate scoping and match nothing.
@@ -39,7 +40,7 @@ async function main() {
   const db = new pg.Client({ connectionString: url });
   await db.connect();
   const result = await db.query<{ dbName: string }>(`SELECT current_database() AS "dbName"`);
-  const dbName = result.rows[0].dbName;
+  const { dbName } = result.rows[0];
   await db.end();
 
   const out = argv.out
@@ -52,7 +53,7 @@ async function main() {
   await client.end();
 }
 
-main().catch((err) => {
-  log.error(`error dumping db: ${(err as Error).stack || err}`);
-  throw err;
+main().catch((error) => {
+  log.error(`error dumping db: ${(error as Error).stack || error}`);
+  throw error;
 });

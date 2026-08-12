@@ -292,11 +292,12 @@ Publishing uses **npm [trusted publishing](https://docs.npmjs.com/trusted-publis
   it to match.
 
 **The `prepublishOnly` gate.** `npm publish` runs the `prepublishOnly` script from
-[`package.json`](../package.json) — currently `build` → `eslint` → `test`, where
-`test` is the full vitest run including the Testcontainers e2e suite (which needs
-Docker; `ubuntu-latest` has it). This is the last gate before the tarball is
-uploaded, and it is defined in `package.json`, not here — treat that script as the
-authority if the two ever disagree.
+[`package.json`](../package.json) — currently `check` → `build` → `test`, where
+`check` is `ultracite check` (oxlint + oxfmt) and `test` is the full vitest run
+including the Testcontainers e2e suite (which needs Docker; `ubuntu-latest` has
+it). This is the last gate before the tarball is uploaded, and it is defined in
+`package.json`, not here — treat that script as the authority if the two ever
+disagree.
 
 One ordering consequence worth knowing: the tag and GitHub Release are created
 **before** `npm publish` runs. If the publish fails — red test, npm outage,

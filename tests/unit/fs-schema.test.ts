@@ -1,7 +1,9 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
+
 import * as fs from 'fs-extra';
-import * as os from 'os';
-import * as path from 'path';
 import { vi } from 'vitest';
+
 import * as fsSchemaModule from '../../src/fs-schema';
 import { FsSchema, RESTORE_ORDER } from '../../src/fs-schema';
 import type { Attribute } from '../../src/pg-objects/tables';
@@ -16,7 +18,7 @@ test('every file prefix has a place in RESTORE_ORDER', () => {
     .map(([, value]) => value as string);
 
   expect(prefixes.length).toBeGreaterThan(0);
-  expect([...RESTORE_ORDER].sort()).toEqual([...prefixes].sort());
+  expect([...RESTORE_ORDER].toSorted()).toEqual([...prefixes].toSorted());
 });
 
 let tmp: string;
@@ -65,7 +67,7 @@ test('outputFileSyncSafe collision: creates versioned files and warns', () => {
 test('writeExtension produces correct filename and content', () => {
   const src = 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"';
   fsSchema.writeExtension({ name: 'uuid-ossp', src });
-  const content = fs.readFileSync(path.join(tmp, 'extension.uuid-ossp.sql'), 'utf8');
+  const content = fs.readFileSync(path.join(tmp, 'extension.uuid-ossp.sql'), 'utf-8');
   expect(content).toBe(src);
 });
 
@@ -74,7 +76,7 @@ test('writeExtension produces correct filename and content', () => {
 // ---------------------------------------------------------------------------
 test('writeSchema wraps in CREATE SCHEMA IF NOT EXISTS', () => {
   fsSchema.writeSchema({ schema: 'myschema' });
-  const content = fs.readFileSync(path.join(tmp, 'schema.myschema.sql'), 'utf8');
+  const content = fs.readFileSync(path.join(tmp, 'schema.myschema.sql'), 'utf-8');
   // Left bare: quoting a plain lowercase name would churn every dump for nothing.
   expect(content).toBe('CREATE SCHEMA IF NOT EXISTS myschema');
 });
@@ -84,7 +86,7 @@ test('writeSchema wraps in CREATE SCHEMA IF NOT EXISTS', () => {
 // fs-schema-helpers.test.ts, which is what stops such a name escaping its identifier.
 test('writeSchema quotes a mixed-case schema name so it does not fold', () => {
   fsSchema.writeSchema({ schema: 'MixedCase' });
-  const content = fs.readFileSync(path.join(tmp, 'schema.MixedCase.sql'), 'utf8');
+  const content = fs.readFileSync(path.join(tmp, 'schema.MixedCase.sql'), 'utf-8');
   expect(content).toBe('CREATE SCHEMA IF NOT EXISTS "MixedCase"');
 });
 
@@ -94,7 +96,7 @@ test('writeSchema quotes a mixed-case schema name so it does not fold', () => {
 test('writeType normalizes CRLF and schema-qualifies the filename', () => {
   const src = "CREATE TYPE public.mood AS ENUM (\r\n  'happy',\r\n  'sad'\r\n)";
   fsSchema.writeType({ schema: 'public', name: 'mood', src });
-  const content = fs.readFileSync(path.join(tmp, 'type.public.mood.sql'), 'utf8');
+  const content = fs.readFileSync(path.join(tmp, 'type.public.mood.sql'), 'utf-8');
   expect(content).not.toContain('\r');
   expect(content).toContain('happy');
 });
@@ -105,7 +107,7 @@ test('writeType normalizes CRLF and schema-qualifies the filename', () => {
 test('writeFunction produces correct prefix and normalizes src', () => {
   const src = 'CREATE FUNCTION public.do_thing()\r\nRETURNS void AS $$ $$ LANGUAGE sql';
   fsSchema.writeFunction({ schema: 'public', name: 'do_thing', src });
-  const content = fs.readFileSync(path.join(tmp, 'function.public.do_thing.sql'), 'utf8');
+  const content = fs.readFileSync(path.join(tmp, 'function.public.do_thing.sql'), 'utf-8');
   expect(content).not.toContain('\r');
   expect(content).toContain('do_thing');
 });
@@ -116,7 +118,7 @@ test('writeFunction produces correct prefix and normalizes src', () => {
 test('writeSequence produces correct filename and preserves src', () => {
   const src = 'CREATE SEQUENCE public.users_id_seq START 1';
   fsSchema.writeSequence({ schema: 'public', name: 'users_id_seq', src });
-  const content = fs.readFileSync(path.join(tmp, 'sequence.public.users_id_seq.sql'), 'utf8');
+  const content = fs.readFileSync(path.join(tmp, 'sequence.public.users_id_seq.sql'), 'utf-8');
   expect(content).toBe(src);
 });
 
@@ -126,7 +128,7 @@ test('writeSequence produces correct filename and preserves src', () => {
 test('writeView wraps in CREATE OR REPLACE VIEW and uses correct prefix', () => {
   const src = 'SELECT id, name FROM public.users';
   fsSchema.writeView({ schema: 'public', name: 'active_users', src });
-  const content = fs.readFileSync(path.join(tmp, 'view.public.active_users.sql'), 'utf8');
+  const content = fs.readFileSync(path.join(tmp, 'view.public.active_users.sql'), 'utf-8');
   expect(content).toBe(`CREATE OR REPLACE VIEW public.active_users AS\n${src}\n`);
 });
 
@@ -344,7 +346,7 @@ test('writeTable: creates table file and fk file', () => {
     ],
   });
 
-  const tableContent = fs.readFileSync(path.join(tmp, 'table.public.orders.sql'), 'utf8');
+  const tableContent = fs.readFileSync(path.join(tmp, 'table.public.orders.sql'), 'utf-8');
   expect(tableContent.startsWith('create table public.orders (')).toBe(true);
 
   // sortedAttributes ordering: id, created_at, city_id (references → higher priority), note
@@ -392,7 +394,7 @@ test('writeForeignKeys: one file per table holding every foreign key', () => {
 
   const fkFile = path.join(tmp, 'fk.public.orders.sql');
   expect(fs.existsSync(fkFile)).toBe(true);
-  const fkContent = fs.readFileSync(fkFile, 'utf8');
+  const fkContent = fs.readFileSync(fkFile, 'utf-8');
   expect(fkContent).toContain('ALTER TABLE public.orders ADD CONSTRAINT orders_city_fk FOREIGN KEY (city_id)');
   // multi-column foreign keys survive, which the old per-column derivation could not express
   expect(fkContent).toContain(

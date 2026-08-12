@@ -1,8 +1,10 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+import * as fs from 'fs-extra';
+
 import { resolveScope } from '../../src/scope';
 import { loadScopeFile, mergeScope, validateScope } from '../../src/scope-file';
-import * as fs from 'fs-extra';
-import * as path from 'path';
-import * as os from 'os';
 
 // ---------------------------------------------------------------------------
 // resolveScope

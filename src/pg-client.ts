@@ -1,21 +1,27 @@
+import { uniq } from 'lodash';
 import * as pg from 'pg';
-import { pgQuoteStrings } from './pg-helpers';
-import { log } from './utils';
+import type { QueryResultRow } from 'pg';
 import { parse as parsePgConnectionString } from 'pg-connection-string';
+
 import { FsSchema } from './fs-schema';
 import { unquoted } from './fs-schema-helpers';
-import { CollectedConstraints, collectConstraints } from './pg-objects/constraints';
-import { uniq } from 'lodash';
-import { collectIndexes } from './pg-objects/indexes';
+import { pgQuoteStrings } from './pg-helpers';
+import type { CollectedConstraints } from './pg-objects/constraints';
+import { collectConstraints } from './pg-objects/constraints';
 import { collectExtensions } from './pg-objects/extensions';
-import { collectTypes } from './pg-objects/types';
-import { collectTables } from './pg-objects/tables';
-import { CollectedViews, collectViews } from './pg-objects/views';
 import { collectFunctions } from './pg-objects/functions';
+import { collectIndexes } from './pg-objects/indexes';
+import type { OwnedBy } from './pg-objects/sequences';
+import { collectSequences } from './pg-objects/sequences';
+import { collectTables } from './pg-objects/tables';
 import { collectTriggers } from './pg-objects/triggers';
-import { collectSequences, OwnedBy } from './pg-objects/sequences';
-import { resolveScope, ResolvedScope, ScopeOptions } from './scope';
+import { collectTypes } from './pg-objects/types';
+import type { CollectedViews } from './pg-objects/views';
+import { collectViews } from './pg-objects/views';
+import type { ResolvedScope, ScopeOptions } from './scope';
+import { resolveScope } from './scope';
 import { validateScope } from './scope-file';
+import { log } from './utils';
 
 const DEFAULT_SCHEMAS_TO_SKIP: string[] = ['pg_catalog', 'information_schema'];
 const DEFAULT_FUNCTIONS_TO_SKIP: string[] = [];
@@ -38,14 +44,14 @@ export interface DumpOmissions {
 }
 
 export class PgClient {
-  private _clientConfig: pg.ClientConfig;
+  private readonly _clientConfig: pg.ClientConfig;
   private _client: pg.Client | null = null;
-  private _logger: typeof log | null;
-  private _skipSchemas: string[];
-  private _skipFunctions: string[];
-  private _skipExtensions: string[];
-  private _scope: ResolvedScope;
-  private _scopeSummary: string;
+  private readonly _logger: typeof log | null;
+  private readonly _skipSchemas: string[];
+  private readonly _skipFunctions: string[];
+  private readonly _skipExtensions: string[];
+  private readonly _scope: ResolvedScope;
+  private readonly _scopeSummary: string;
 
   constructor(
     config: string | pg.ClientConfig,
@@ -65,7 +71,7 @@ export class PgClient {
         ...config,
       };
     }
-    this._logger = options.logger !== undefined ? options.logger : log;
+    this._logger = options.logger === undefined ? log : options.logger;
     this._skipSchemas = DEFAULT_SCHEMAS_TO_SKIP.concat(options.skipSchemas || []);
     this._skipFunctions = DEFAULT_FUNCTIONS_TO_SKIP.concat(options.skipFunctions || []);
     this._skipExtensions = options.skipExtensions || [];
@@ -98,14 +104,14 @@ export class PgClient {
   }
 
   // wrapper around client.query that does not keep the connection open
-  async query<T>(query: string) {
+  async query<T extends QueryResultRow = QueryResultRow>(query: string) {
     await this.connect();
     const result = await this._client!.query<T>(query);
     await this.end();
     return result;
   }
 
-  async rows<T>(query: string) {
+  async rows<T extends QueryResultRow = QueryResultRow>(query: string) {
     const result = await this.query<T>(query);
     return result.rows;
   }
@@ -125,12 +131,12 @@ export class PgClient {
     return databases.some((x) => x === db);
   }
 
-  createDatabase(db: string) {
-    return this.query(`CREATE DATABASE "${db}"`);
+  async createDatabase(db: string) {
+    return await this.query(`CREATE DATABASE "${db}"`);
   }
 
   async getConnections(db: string) {
-    return this.rows<{ pid: number }>(
+    return await this.rows<{ pid: number }>(
       `SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND pg_stat_activity.datname = '${db}'`
     );
   }
@@ -144,7 +150,7 @@ export class PgClient {
 
   async dropDatabase(db: string) {
     await this.dropConnections(db);
-    return this.query(`DROP DATABASE "${db}"`);
+    return await this.query(`DROP DATABASE "${db}"`);
   }
 
   async switchDatabase(db: string) {
@@ -204,8 +210,8 @@ export class PgClient {
         collectConstraints(this._client, { skipSchemas, scope }),
       ] as const);
 
-    const views = collectedViews.views;
-    const constraints = collectedConstraints.constraints;
+    const { views } = collectedViews;
+    const { constraints } = collectedConstraints;
 
     // What a scope left out, reported by the collectors that made the decision
     // rather than re-derived by a second set of queries that would have to be kept
@@ -225,7 +231,7 @@ export class PgClient {
 
     const tableKey = (schema: string, table: string) => `${schema}.${table}`;
     const byTable = <T extends { schema: string; table: string }>(items: T[]) => {
-      const map: { [key: string]: T[] } = {};
+      const map: Record<string, T[]> = {};
       for (const item of items) {
         const key = tableKey(item.schema, unquoted(item.table));
         (map[key] = map[key] || []).push(item);
@@ -240,9 +246,9 @@ export class PgClient {
     // A sequence owned by a column belongs to that column's table: its
     // ALTER SEQUENCE ... OWNED BY has to run after the table exists, so it is
     // emitted inside the table's file rather than the sequence's own.
-    const ownedSequencesByTable: { [key: string]: Array<{ schema: string; name: string; ownedBy: OwnedBy }> } = {};
+    const ownedSequencesByTable: Record<string, { schema: string; name: string; ownedBy: OwnedBy }[]> = {};
     for (const sequence of sequences) {
-      const ownedBy = sequence.ownedBy;
+      const { ownedBy } = sequence;
       if (!ownedBy) {
         continue;
       }
@@ -303,9 +309,9 @@ export class PgClient {
     let restoreError: unknown;
     try {
       await this._restoreSchema({ src });
-    } catch (err) {
+    } catch (error) {
       failed = true;
-      restoreError = err;
+      restoreError = error;
     }
 
     // Always hand the connection back with validation restored, even on a failed
@@ -318,16 +324,16 @@ export class PgClient {
     // logged, and the restore error always wins.
     try {
       await this._client?.query(`SET check_function_bodies = on`);
-    } catch (err) {
+    } catch (error) {
       // Usually means the session is already unusable, but that is an assumption -
       // a pooler refusing a session-level SET looks the same, and silently swallowing
       // it would leave validation off with no trace of why.
-      this._logger?.warn(`failed to restore check_function_bodies: ${(err as Error).message}`);
+      this._logger?.warn(`failed to restore check_function_bodies: ${(error as Error).message}`);
     }
     try {
       await this.end();
-    } catch (err) {
-      this._logger?.warn(`failed to close the connection after restore: ${(err as Error).message}`);
+    } catch (error) {
+      this._logger?.warn(`failed to close the connection after restore: ${(error as Error).message}`);
     }
 
     if (failed) {
@@ -344,7 +350,7 @@ export class PgClient {
     await this._client!.query(`SET check_function_bodies = off`);
 
     const fNames = await fsSchema.readDir();
-    const lastError: { [fName: string]: Error } = {};
+    const lastError: Record<string, Error> = {};
     // Files are ordered so one pass suffices, but chained views (a view selecting
     // from another view) can still need a retry. Requeue a failing file and give
     // up only once a full cycle completes with nothing succeeding.
@@ -359,8 +365,8 @@ export class PgClient {
         fNames.shift();
         delete lastError[fName];
         sinceLastProgress = 0;
-      } catch (err) {
-        lastError[fName] = err as Error;
+      } catch (error) {
+        lastError[fName] = error as Error;
         fNames.shift();
         fNames.push(fName);
         sinceLastProgress += 1;

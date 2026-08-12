@@ -1,5 +1,6 @@
-import { log } from '../../src/utils';
 import { vi } from 'vitest';
+
+import { log } from '../../src/utils';
 
 test('log.info calls console.info', () => {
   const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
