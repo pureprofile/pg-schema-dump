@@ -131,7 +131,9 @@ export async function collectViews(
   for (const candidate of candidates) {
     if (candidate.missing.length > 0) {
       keepable.delete(candidate.key);
-      causeFor.set(candidate.key, [...candidate.missing].toSorted()[0]);
+      // .sort(), not .toSorted(): the spread is already a fresh copy, and toSorted
+      // (ES2023, Node 20+) would crash older-Node consumers of this published package.
+      causeFor.set(candidate.key, [...candidate.missing].sort()[0]);
     }
   }
   let settled = false;
@@ -140,7 +142,7 @@ export async function collectViews(
     for (const candidate of keepable.values()) {
       // A view dependency this collector never returned at all - a skipped schema, an
       // extension's own view - is as absent from the dump as an excluded one.
-      const brokenDep = [...candidate.viewDeps].toSorted().find((dep) => !keepable.has(dep));
+      const brokenDep = [...candidate.viewDeps].sort().find((dep) => !keepable.has(dep));
       if (brokenDep) {
         keepable.delete(candidate.key);
         causeFor.set(candidate.key, brokenDep);

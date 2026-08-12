@@ -31,6 +31,12 @@ export default defineConfig({
 
     'eslint/require-unicode-regexp': 'off',
 
+    // Deliberately off, not deferred: the autofix rewrites `.sort()` to `.toSorted()`,
+    // which is ES2023 / Node 20+. This is a published package with no engines floor, so
+    // older-Node consumers would crash at runtime. The two src call sites already sort a
+    // fresh spread copy, so the mutation concern the rule guards against does not apply.
+    'unicorn/no-array-sort': 'off',
+
     // ── Rules deferred on adoption of ultracite 7.9.4 ──
 
     // TODO: evaluate this rule in the future

@@ -4,6 +4,8 @@ import ultracite from 'ultracite/oxfmt';
 export default defineConfig({
   ...ultracite,
   ignorePatterns: [
+    // Extend (not replace) ultracite's default ignore list.
+    ...(ultracite.ignorePatterns ?? []),
     // Owned by release-please — never hand-edited, so never reformatted either.
     'CHANGELOG.md',
   ],
