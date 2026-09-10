@@ -58,7 +58,7 @@
     "testcontainers": "12.1.0",
     "typescript": "6.0.3",
     "ultracite": "7.9.4",
-    "vitest": "4.1.6"
+    "vitest": "5.0.0"
   },
   "packageManager": "pnpm@11.5.0"
 }
