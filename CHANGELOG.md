@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2](https://github.com/pureprofile/pg-schema-dump/compare/v2.1.1...v2.1.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* **deps:** bump vitest to 4.1.12 and resolve new dependabot alerts ([#30](https://github.com/pureprofile/pg-schema-dump/issues/30)) ([68e82c9](https://github.com/pureprofile/pg-schema-dump/commit/68e82c942912fba60cb074f1160aa86c1236a9a1))
+
 ## [2.1.1](https://github.com/pureprofile/pg-schema-dump/compare/v2.1.0...v2.1.1) (2026-11-01)
 
 
