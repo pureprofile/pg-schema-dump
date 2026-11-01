@@ -48,7 +48,7 @@
     "@types/node": "^24",
     "@types/pg": "^8",
     "@types/yargs": "^15",
-    "@vitest/coverage-v8": "4.1.6",
+    "@vitest/coverage-v8": "4.1.11",
     "is-ci": "^3.0.1",
     "lefthook": "2.1.6",
     "oxfmt": "0.48.0",
@@ -58,7 +58,7 @@
     "testcontainers": "12.1.0",
     "typescript": "6.0.3",
     "ultracite": "7.9.4",
-    "vitest": "4.1.6"
+    "vitest": "4.1.11"
   },
   "packageManager": "pnpm@11.5.0"
 }
