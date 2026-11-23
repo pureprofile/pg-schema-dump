@@ -152,3 +152,36 @@ Flow: **collect** (read catalog) → **write** (emit files) — orchestrated by 
 - Every collector must honour the scope. A collector that ignores it silently widens a scoped dump back out to the whole database.
 - **Dependency vulnerabilities: read [pnpm-workspace.yaml](pnpm-workspace.yaml) before acting on a Dependabot alert.** Its `overrides` block is the carve-out list for transitive vulnerabilities no in-range refresh can reach, and it carries the policy in comments: prefer bumping the parent over adding an entry, every entry must cite its GHSA, and an entry is deleted once the parent ships the fix. An override that forces a version its parent never declared is a standing compatibility risk, so adding one is the last resort, not the first move.
 - Commit messages must be Conventional Commits — releases are derived from them. See [Releases](#releases--conventional-commits-are-mandatory) and [docs/release-please.md](docs/release-please.md).
+
+## Follow-ups
+
+Any follow-up tasks discovered while working on changes — known issues to defer, tech debt to address later, missing tests or docs, tooling gaps — must be recorded in `docs/TODO.md` in the same change so they aren't forgotten.
+
+Keep this list current. **When a follow-up is resolved, delete its entry outright** — do not check it off, mark it `DONE`/✅, strike it through, or otherwise leave a "completed" line behind. `docs/TODO.md` tracks only open work; resolved items live in git history.
+
+**Entry format.** Each entry in `docs/TODO.md` is its own `##` heading of the form
+`## YYYY-MM-DD · <Priority> · <Type> · <short title>` covering one issue, with the detail in the body below it.
+The date is the day the entry was written; entries converted to this format on 2026-11-23 keep the date their
+item was first recorded.
+
+`<Priority>` is how soon it matters:
+
+- `Critical` — broken production behaviour, data loss or corruption, an exploitable security hole, or blocked work.
+- `Major` — a real defect or gap worth scheduling soon.
+- `Minor` — low impact; worth doing when nearby.
+
+`<Type>` is what kind of work it is: `Security`, `Bug`, `Feature`, `Performance`, `Refactor`, `Tests`, `Tooling`,
+`Infra`, `Observability`, `Dependencies`, `Docs` or `Other`.
+
+Do not record trivial items with no real value (cosmetic wording, speculative polish); they pollute the list.
+Do not group entries under shared section headings or priority tiers, do not use checkboxes, and do not add a
+separate type or category line to the body.
+
+**Append only.** Add new entries at the end of the file, so it stays sorted oldest-first by date. Never insert
+an entry above an existing one, and never change an entry's date when editing it; its priority and type may be
+updated.
+When two branches both append, resolve the conflict by keeping both entries, in date order.
+
+## Lessons learned
+
+When the user corrects a mistake I made — whether about this codebase, their preferences, or a general technical point — I append a brief entry to this section before continuing the task. Each entry: one line, written as a rule for my future self, not a narrative of what happened.
